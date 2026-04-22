@@ -52,10 +52,13 @@ Attention-Marker bleiben stehen bis du *im Tab etwas tippst* — reines Durchtab
 ### Option A · Installer (empfohlen)
 
 1. `TerminalStack-Setup-v*.exe` aus den [Releases](https://github.com/stackschmiede/stack-terminal/releases) laden
-2. Doppelklick → Wizard führt durch (WSL-Distro + Username werden automatisch erkannt)
+2. Doppelklick → Wizard führt durch (WSL-Distro + Username bestätigen/anpassen)
 3. Fertig. WezTerm neu starten.
 
 Kein Admin nötig — alles landet im User-Profile.
+
+> **SmartScreen-Warnung:** Der Installer ist noch nicht code-signiert (Zertifikat kostet ~150-450€/Jahr). Beim ersten Start erscheint daher „Der Computer wurde durch Windows geschützt".
+> Klicke auf **„Weitere Informationen"** → **„Trotzdem ausführen"**. Das ist bei jedem unbekannten `.exe` so und kein Hinweis auf Schadsoftware. Der Quellcode des Installers ist vollständig im Repo einsehbar (`install/TerminalStack.iss`).
 
 ### Option B · Klassisch via Repo / ZIP
 
