@@ -1,0 +1,17 @@
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# WezTerm runtime
+*.bak.*
+*.wez-log
+
+# Personal variants (user-specific paths, usernames, project lists)
+config/wezterm.personal.lua
+config/wezterm.*.local.lua
+
+# Temp
+*.tmp
+*.swp
