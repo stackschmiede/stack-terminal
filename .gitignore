@@ -15,3 +15,6 @@ config/wezterm.*.local.lua
 # Temp
 *.tmp
 *.swp
+
+# Installer-Build-Output (wird via GitHub Actions gebaut)
+install/Output/

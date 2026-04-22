@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Installer (Inno Setup)
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.5
+        with:
+          path: install/TerminalStack.iss
+          options: /O+
+
+      - name: Create ZIP
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $zipName = "TerminalStack-$tag.zip"
+          $include = @('config', 'install', 'docs', 'README.md', 'CHANGELOG.md', 'LICENSE')
+          $items = $include | Where-Object { Test-Path $_ } | ForEach-Object { Get-Item $_ }
+          Compress-Archive -Path $items -DestinationPath $zipName -Force
+          Write-Output "zip=$zipName" >> $env:GITHUB_OUTPUT
+        id: zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "TerminalStack ${{ github.ref_name }}"
+          body: |
+            ## TerminalStack ${{ github.ref_name }}
+
+            WezTerm-Konfiguration by [Stackschmiede](https://stackschmiede.de)
+
+            ### Installation
+
+            **Option A — Installer (empfohlen)**
+            1. `TerminalStack-Setup-*.exe` herunterladen und ausführen
+            2. WSL-Distribution + Username bestätigen → fertig
+
+            **Option B — ZIP / manuell**
+            1. ZIP entpacken
+            2. In `install/` → `install.bat` doppelklicken (oder `install.ps1` in PowerShell)
+
+            **Option C — One-Liner (PowerShell)**
+            ```powershell
+            irm https://raw.githubusercontent.com/${{ github.repository }}/main/install/install.ps1 | iex
+            ```
+
+            ### Voraussetzungen
+            - Windows 10/11
+            - [WezTerm](https://wezfurlong.org/wezterm/) installiert
+            - WSL2 mit Ubuntu (oder anderer Distro)
+
+            ### Änderungen
+            Siehe [CHANGELOG.md](CHANGELOG.md)
+          files: |
+            install/Output/TerminalStack-Setup-*.exe
+            TerminalStack-${{ github.ref_name }}.zip
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}

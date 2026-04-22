@@ -146,24 +146,40 @@ config.show_new_tab_button_in_tab_bar = false
 config.tab_max_width = 34
 
 -- ═══════════════════════════════════════════════════════════════
--- attention-state: bell-basiert + "terminal arbeitet wieder"-clearing
--- bell → marker + cursor-anchor gespeichert
--- poll → cursor weiter = neuer output = prozess arbeitet → clear
+-- tab-state-maschine: idle / busy / attention
+-- pro pane fingerprint (letzte 12 zeilen) → erkennt auch \r-overwrites
+-- bell → attn_pending; cleart nur beim Tab-Fokus (nicht bei neuem Output)
 -- ═══════════════════════════════════════════════════════════════
-wezterm.GLOBAL.attention = wezterm.GLOBAL.attention or {}
+wezterm.GLOBAL.pane_state = wezterm.GLOBAL.pane_state or {}
 
-local function cursor_anchor(pane)
-  local ok, cur = pcall(function() return pane:get_cursor_position() end)
-  if not ok or not cur then return 0 end
-  return cur.stable_row or cur.y or 0
+local BUSY_WINDOW = 3  -- sekunden seit letztem output → "busy"
+
+local function pane_fingerprint(pane)
+  local ok, txt = pcall(function() return pane:get_lines_as_text(12) end)
+  if not ok or not txt then return '0:' end
+  -- länge + suffix (letzte 64 zeichen) → robust gegen \r-overwrites in spinner-zeilen
+  local suffix = txt:sub(-64)
+  return tostring(#txt) .. ':' .. suffix
+end
+
+local function get_state(pid)
+  wezterm.GLOBAL.pane_state = wezterm.GLOBAL.pane_state or {}
+  local st = wezterm.GLOBAL.pane_state[pid]
+  if not st then
+    st = { fp = '', last_change = 0, attn_pending = false, bell_fp = '' }
+    wezterm.GLOBAL.pane_state[pid] = st
+  end
+  return st
 end
 
 wezterm.on('bell', function(window, pane)
-  wezterm.GLOBAL.attention = wezterm.GLOBAL.attention or {}
-  wezterm.GLOBAL.attention[tostring(pane:pane_id())] = { anchor = cursor_anchor(pane) }
+  local pid = tostring(pane:pane_id())
+  local st = get_state(pid)
+  st.attn_pending = true
+  st.bell_fp = pane_fingerprint(pane)
 end)
 
--- tab-titel: cwd + kontext-prefix + amber-markierung bei attention
+-- tab-titel: 5-state-rendering (active, active+busy, inactive+busy, inactive+attention, inactive+idle)
 wezterm.on('format-tab-title', function(tab, tabs, panes, cfg, hover, max_width)
   local idx = tab.tab_index + 1
   local pane = tab.active_pane
@@ -195,15 +211,20 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, cfg, hover, max_width)
   end
   local text = string.format('  %d %s %s  ', idx, prefix, label)
 
+  local pid = tostring(pane.pane_id)
+  local st = get_state(pid)
+  local now = os.time()
+  local busy = (now - (st.last_change or 0)) < BUSY_WINDOW
+
   if tab.is_active then
+    st.is_active = true
     return text
+  else
+    st.is_active = false
   end
 
-  -- inaktive tabs: amber-markierung wenn attention-flag gesetzt
-  -- (flag wird NICHT bei tab-wechsel gecleart — bleibt bis neuer output kommt)
-  local pid = tostring(pane.pane_id)
-  local attn = wezterm.GLOBAL.attention or {}
-  if attn[pid] then
+  -- inactive + attention (fertig, unbeachtet): amber-bold
+  if st.attn_pending and not busy then
     return {
       { Background = { Color = ss.primary } },
       { Foreground = { Color = ss.bg } },
@@ -212,6 +233,16 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, cfg, hover, max_width)
     }
   end
 
+  -- inactive + busy (arbeitet): amber-soft auf surface
+  if busy then
+    return {
+      { Background = { Color = ss.surface } },
+      { Foreground = { Color = ss.primarySoft } },
+      { Text = text },
+    }
+  end
+
+  -- inactive + idle: surface / muted (default)
   return text
 end)
 
@@ -219,28 +250,34 @@ end)
 -- status-bar + attention-polling (clearing bei neuem output)
 -- ═══════════════════════════════════════════════════════════════
 wezterm.on('update-status', function(window, pane)
-  -- attention-poll: neuer output in markiertem pane → flag clearen
-  wezterm.GLOBAL.attention = wezterm.GLOBAL.attention or {}
-  local attn = wezterm.GLOBAL.attention
-  if next(attn) ~= nil then
-    local mux_ok, all_windows = pcall(function() return wezterm.mux.all_windows() end)
-    if mux_ok and all_windows then
-      for _, mwin in ipairs(all_windows) do
-        for _, tab in ipairs(mwin:tabs()) do
-          for _, p in ipairs(tab:panes()) do
-            local pid = tostring(p:pane_id())
-            local entry = attn[pid]
-            if entry then
-              local now = cursor_anchor(p)
-              if now > (entry.anchor or 0) then
-                attn[pid] = nil
-              end
+  -- pane-state-poll: fp-diff → last_change; fp-änderung nach bell → attn clear (busy-wieder)
+  -- gesamter poll in pcall: fehler (tab/pane gerade geschlossen) dürfen status-bar nicht blocken
+  pcall(function()
+    wezterm.GLOBAL.pane_state = wezterm.GLOBAL.pane_state or {}
+    local all_wins = wezterm.mux.all_windows()
+    local now = os.time()
+    local alive = {}
+    for _, mwin in ipairs(all_wins) do
+      for _, tab in ipairs(mwin:tabs()) do
+        for _, p in ipairs(tab:panes()) do
+          local pid = tostring(p:pane_id())
+          alive[pid] = true
+          local st = get_state(pid)
+          local fp = pane_fingerprint(p)
+          if fp ~= st.fp then
+            st.fp = fp
+            st.last_change = now
+            if st.attn_pending and st.is_active then
+              st.attn_pending = false
             end
           end
         end
       end
     end
-  end
+    for pid in pairs(wezterm.GLOBAL.pane_state) do
+      if not alive[pid] then wezterm.GLOBAL.pane_state[pid] = nil end
+    end
+  end)
 
   local time = wezterm.strftime('%H:%M')
   local date = wezterm.strftime('%a %d.%m')
@@ -361,6 +398,26 @@ local new_tab_wsl = wezterm.action_callback(function(window, pane)
   )
 end)
 
+local about_overlay = act.PromptInputLine {
+  description = wezterm.format {
+    { Foreground = { Color = ss.primary } }, { Attribute = { Intensity = 'Bold' } },
+    { Text = '  TerminalStack  ·  Stackschmiede\n' },
+    { Attribute = { Intensity = 'Normal' } },
+    { Foreground = { Color = ss.border } },
+    { Text = '  ──────────────────────────────────────\n' },
+    { Foreground = { Color = ss.muted } },    { Text = '  Web      ' },
+    { Foreground = { Color = ss.accentSoft } }, { Text = 'https://stackschmiede.de\n' },
+    { Foreground = { Color = ss.muted } },    { Text = '  Stack    ' },
+    { Foreground = { Color = ss.fg } },       { Text = 'WSL2 · WezTerm · Claude Code\n' },
+    { Foreground = { Color = ss.muted } },    { Text = '  Lizenz   ' },
+    { Foreground = { Color = ss.fg } },       { Text = 'MIT\n' },
+    { Foreground = { Color = ss.border } },
+    { Text = '  ──────────────────────────────────────\n' },
+    { Foreground = { Color = ss.muted } },    { Text = '  [Enter] schließen\n' },
+  },
+  action = wezterm.action_callback(function(w, p, line) end),
+}
+
 local rename_tab = act.PromptInputLine {
   description = wezterm.format {
     { Attribute = { Intensity = 'Bold' } },
@@ -420,12 +477,15 @@ config.keys = {
   -- Ctrl+Shift+V: smart-paste (clipboard-image → WSL path, otherwise text)
   { key = 'v', mods = 'CTRL|SHIFT', action = smart_paste },
 
+  { key = 'F1',                      action = about_overlay },
   { key = 'F2',                      action = rename_tab },
   { key = 'e',  mods = 'CTRL|SHIFT', action = rename_tab },
 
   { key = 'PageUp',   mods = 'CTRL|SHIFT', action = act.MoveTabRelative(-1) },
   { key = 'PageDown', mods = 'CTRL|SHIFT', action = act.MoveTabRelative(1) },
   { key = 'F6',                            action = detach_tab },
+
+  { key = 'F5',                      action = act.ReloadConfiguration },
 
   { key = '-', mods = 'CTRL',       action = act.DecreaseFontSize },
   { key = '=', mods = 'CTRL',       action = act.IncreaseFontSize },
@@ -449,10 +509,16 @@ config.keys = {
   { key = 'O',     mods = 'CTRL|SHIFT', action = act.ShowLauncherArgs { flags = 'FUZZY|WORKSPACES' } },
   { key = 'f',     mods = 'CTRL|SHIFT', action = act.Search 'CurrentSelectionOrEmptyString' },
   { key = 'Space', mods = 'CTRL|SHIFT', action = act.QuickSelect },
+
+  -- tab-cycling: ctrl+space (vorwärts) / ctrl+` (rückwärts)
+  { key = 'Space', mods = 'CTRL',       action = act.ActivateTabRelative(1) },
+  { key = '`',     mods = 'CTRL',       action = act.ActivateTabRelative(-1) },
 }
 
 config.mouse_bindings = {
   { event = { Down = { streak = 1, button = 'Right' } }, mods = 'NONE', action = act.PasteFrom 'Clipboard' },
+  -- doppel-rechtsklick: about-overlay (hintergrundbild nicht anklickbar in wezterm)
+  { event = { Down = { streak = 2, button = 'Right' } }, mods = 'NONE', action = about_overlay },
   { event = { Up = { streak = 1, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
   { event = { Up = { streak = 2, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
   { event = { Up = { streak = 3, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
