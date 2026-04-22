@@ -11,6 +11,8 @@ Thumbs.db
 # Personal variants (user-specific paths, usernames, project lists)
 config/wezterm.personal.lua
 config/wezterm.*.local.lua
+config/*.personal.*
+config/*.local.*
 
 # Temp
 *.tmp
@@ -18,3 +20,16 @@ config/wezterm.*.local.lua
 
 # Installer-Build-Output (wird via GitHub Actions gebaut)
 install/Output/
+
+# Preview-Screenshots (können persönliche Infos enthalten)
+preview/*.png
+preview/*.jpg
+preview/*.jpeg
+preview/*.gif
+preview/*.mp4
+preview/*.webp
+
+# Lokale Notizen / Logs
+*.log
+WORKNOTES.md
+.sound.log
