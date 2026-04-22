@@ -68,84 +68,26 @@ Source: "paste-image.ps1";            DestDir: "{tmp}\ts-src";  Flags: ignorever
 // ─────────────────────────────────────────────────────────────────────────────
 var
   PageConfig:      TWizardPage;
-  DistroCombo:     TNewComboBox;
+  DistroEdit:      TNewEdit;
   DistroLabel:     TNewStaticText;
   UserEdit:        TNewEdit;
   UserLabel:       TNewStaticText;
   ProjectsEdit:    TNewEdit;
   ProjectsLabel:   TNewStaticText;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// WSL: Verfügbare Distributionen ermitteln
-// ─────────────────────────────────────────────────────────────────────────────
-function GetWslDistros: TStringList;
-var
-  TmpFile, Output: string;
-  ResultCode: Integer;
-  Lines: TStringList;
-  i: Integer;
-  Line: string;
-begin
-  Result := TStringList.Create;
-  TmpFile := ExpandConstant('{tmp}\wsl-distros.txt');
-  // wsl.exe -l -q gibt Distro-Namen aus (ohne Nullbytes bei neueren WSL-Versionen)
-  if Exec(ExpandConstant('{sys}\wsl.exe'), '-l -q', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-  begin
-    if LoadStringFromFile(TmpFile, Output) then begin
-      Lines := TStringList.Create;
-      Lines.Text := Output;
-      for i := 0 to Lines.Count - 1 do begin
-        Line := Trim(Lines[i]);
-        // Nullbytes und leere Zeilen entfernen
-        Line := StringChange(Line, #0, '');
-        Line := Trim(Line);
-        if Line <> '' then
-          Result.Add(Line);
-      end;
-      Lines.Free;
-    end;
-  end;
-  // Fallback
-  if Result.Count = 0 then
-    Result.Add('Ubuntu');
-end;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// WSL: Standard-Username ermitteln
-// ─────────────────────────────────────────────────────────────────────────────
-function GetWslUsername(Distro: string): string;
-var
-  TmpFile, Output: string;
-  ResultCode: Integer;
-begin
-  TmpFile := ExpandConstant('{tmp}\wsl-user.txt');
-  Result := LowerCase(GetUserNameString);
-  if Exec(ExpandConstant('{sys}\wsl.exe'),
-    '-d ' + Distro + ' -- whoami > "' + TmpFile + '"',
-    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-  begin
-    if LoadStringFromFile(TmpFile, Output) then begin
-      Output := Trim(Output);
-      Output := StringChange(Output, #0, '');
-      Output := Trim(Output);
-      if Output <> '' then
-        Result := Output;
-    end;
-  end;
-end;
+  DistroHint:      TNewStaticText;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Custom Config-Seite erstellen
 // ─────────────────────────────────────────────────────────────────────────────
 procedure CreateConfigPage;
 var
-  Distros: TStringList;
-  i: Integer;
-  DetectedUser: string;
+  DefaultUser: string;
 begin
   PageConfig := CreateCustomPage(wpWelcome,
     'WSL-Konfiguration',
-    'Bitte gib deine WSL-Details ein. Die Werte werden automatisch ermittelt.');
+    'Gib deine WSL-Details ein (oder bestätige die Defaults).');
+
+  DefaultUser := LowerCase(GetUserNameString);
 
   // --- Distro ---
   DistroLabel := TNewStaticText.Create(PageConfig);
@@ -155,55 +97,50 @@ begin
   DistroLabel.Top := 8;
   DistroLabel.Width := 200;
 
-  DistroCombo := TNewComboBox.Create(PageConfig);
-  DistroCombo.Parent := PageConfig.Surface;
-  DistroCombo.Left := 0;
-  DistroCombo.Top := 26;
-  DistroCombo.Width := PageConfig.SurfaceWidth;
-  DistroCombo.Style := csDropDownList;
+  DistroEdit := TNewEdit.Create(PageConfig);
+  DistroEdit.Parent := PageConfig.Surface;
+  DistroEdit.Left := 0;
+  DistroEdit.Top := 26;
+  DistroEdit.Width := PageConfig.SurfaceWidth;
+  DistroEdit.Text := 'Ubuntu';
 
-  Distros := GetWslDistros;
-  for i := 0 to Distros.Count - 1 do
-    DistroCombo.Items.Add(Distros[i]);
-  if DistroCombo.Items.Count > 0 then
-    DistroCombo.ItemIndex := 0;
-  Distros.Free;
+  DistroHint := TNewStaticText.Create(PageConfig);
+  DistroHint.Parent := PageConfig.Surface;
+  DistroHint.Caption := 'Liste der installierten Distros: "wsl -l -q" in PowerShell ausführen.';
+  DistroHint.Left := 0;
+  DistroHint.Top := 50;
+  DistroHint.Width := PageConfig.SurfaceWidth;
+  DistroHint.Font.Size := 7;
 
   // --- Username ---
   UserLabel := TNewStaticText.Create(PageConfig);
   UserLabel.Parent := PageConfig.Surface;
   UserLabel.Caption := 'WSL-Username:';
   UserLabel.Left := 0;
-  UserLabel.Top := 66;
+  UserLabel.Top := 80;
   UserLabel.Width := 200;
 
   UserEdit := TNewEdit.Create(PageConfig);
   UserEdit.Parent := PageConfig.Surface;
   UserEdit.Left := 0;
-  UserEdit.Top := 84;
+  UserEdit.Top := 98;
   UserEdit.Width := PageConfig.SurfaceWidth;
-
-  // Username auto-detect
-  if DistroCombo.Items.Count > 0 then
-    DetectedUser := GetWslUsername(DistroCombo.Items[0])
-  else
-    DetectedUser := LowerCase(GetUserNameString);
-  UserEdit.Text := DetectedUser;
+  UserEdit.Text := DefaultUser;
 
   // --- Projects-Pfad ---
   ProjectsLabel := TNewStaticText.Create(PageConfig);
   ProjectsLabel.Parent := PageConfig.Surface;
   ProjectsLabel.Caption := 'Projects-Pfad (WSL-Pfad, z.B. /home/user/projects):';
   ProjectsLabel.Left := 0;
-  ProjectsLabel.Top := 124;
+  ProjectsLabel.Top := 138;
   ProjectsLabel.Width := PageConfig.SurfaceWidth;
 
   ProjectsEdit := TNewEdit.Create(PageConfig);
   ProjectsEdit.Parent := PageConfig.Surface;
   ProjectsEdit.Left := 0;
-  ProjectsEdit.Top := 142;
+  ProjectsEdit.Top := 156;
   ProjectsEdit.Width := PageConfig.SurfaceWidth;
-  ProjectsEdit.Text := '/home/' + DetectedUser + '/projects';
+  ProjectsEdit.Text := '/home/' + DefaultUser + '/projects';
 end;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -212,18 +149,6 @@ end;
 procedure InitializeWizard;
 begin
   CreateConfigPage;
-end;
-
-// Username-Update wenn Distro gewechselt wird
-procedure DistroComboChange(Sender: TObject);
-var
-  NewUser: string;
-begin
-  if DistroCombo.ItemIndex >= 0 then begin
-    NewUser := GetWslUsername(DistroCombo.Items[DistroCombo.ItemIndex]);
-    UserEdit.Text := NewUser;
-    ProjectsEdit.Text := '/home/' + NewUser + '/projects';
-  end;
 end;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -235,7 +160,7 @@ var
   ResultCode: Integer;
 begin
   if CurStep = ssInstall then begin
-    Distro   := DistroCombo.Items[DistroCombo.ItemIndex];
+    Distro   := Trim(DistroEdit.Text);
     Username := Trim(UserEdit.Text);
     Projects := Trim(ProjectsEdit.Text);
     SrcDir   := ExpandConstant('{tmp}\ts-src');
@@ -269,6 +194,11 @@ function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
   if CurPageID = PageConfig.ID then begin
+    if Trim(DistroEdit.Text) = '' then begin
+      MsgBox('Bitte gib eine WSL-Distribution ein.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
     if Trim(UserEdit.Text) = '' then begin
       MsgBox('Bitte gib einen WSL-Username ein.', mbError, MB_OK);
       Result := False;
