@@ -1,96 +1,152 @@
 # TerminalStack
 
 **WezTerm-Konfiguration im Stackschmiede-Stil.**
-Warme Werkstatt-Palette (Amber + Sage), WSL2-ready, Windows-freundliche Tastenbelegung, visuelle Hinweise wenn ein Tab Aufmerksamkeit braucht.
+Warme Werkstatt-Palette (Amber + Sage) auf Anthrazit, WSL2-ready, Windows-freundliche Tastenbelegung, intelligente Tab-States (busy / attention / idle).
 
-> by [Stackschmiede](https://stackschmiede.de)
+> by [Stackschmiede](https://stackschmiede.de) · MIT-Lizenz
+
+![TerminalStack Preview](preview/preview.png)
 
 ---
 
 ## Features
 
-- **Brand-Palette** — anthrazit bg, amber als primary, sage als accent. Lesbar, ruhig, professionell.
-- **Tab-Attention** — inaktive Tabs werden amber markiert, sobald der dort laufende Prozess ein Bell-Signal sendet (z. B. Claude Code wenn es fertig ist und auf Input wartet). Die Markierung bleibt stehen, bis der Prozess tatsächlich weiterarbeitet (neuer Output erkannt) — du weißt also jederzeit, welcher Tab bereit ist und welcher gerade noch arbeitet.
-- **Tab-Rename** — `F2` oder `Strg+Umschalt+E` öffnet ein Prompt. Enter setzt den Titel, leer = zurücksetzen.
-- **Shift+Mausrad** — seitenweise durchs Scrollback.
-- **Strg+Mausrad** — Font-Zoom (wie im Browser).
-- **Windows-Style Clipboard** — `Strg+C` kopiert bei Selektion (sonst SIGINT), `Strg+V` paste, Rechtsklick paste.
-- **Smart-Paste für Bilder** — `Strg+Umschalt+V` erkennt Bilder (z. B. Screenshot via `Win+Umschalt+S`) in der Zwischenablage, speichert sie nach `%TEMP%` und fügt den WSL-Pfad ein. Wenn im Tab gerade `claude` läuft, wird der Pfad als `@pfad` eingefügt — direkt konsumierbar von der Claude Code CLI. Ohne Bild im Clipboard → normaler Text-Paste.
-- **WSL-Default-Domain** — jeder neue Tab öffnet direkt in WSL, nicht im Windows-Shell.
-- **File:line Hyperlinks** — `Strg+Klick` auf `path/to/file.py:42` öffnet VS Code an der Zeile.
-- **Wordmark-Logo** unten rechts — dezente Brand-Präsenz im Hintergrund.
+### Tab-State-Maschine
+Jeder Tab hat einen von drei Zuständen, die auf einen Blick erkennbar sind:
+
+| State | Farbe | Bedeutung |
+|-------|-------|-----------|
+| **Idle** | dunkel / muted | nichts passiert |
+| **Busy** | Amber-soft auf Surface | Prozess schreibt gerade Output (letzte 3s) |
+| **Attention** | Amber-bold | Prozess hat Bell gesendet — wartet auf dich |
+| **Active** | Amber-bold | aktuell fokussierter Tab |
+
+Attention-Marker bleiben stehen bis du *im Tab etwas tippst* — reines Durchtabben zum Überblick löscht sie nicht. Erkennt auch TUIs mit `\r`-Overwrites (Spinner, Streaming-Output wie Claude Code).
+
+### Brand-Design
+- Anthrazit-BG (`#0F0F10`), Amber als Primary (`#D4A574`), Sage als Accent (`#6B8E7F`)
+- Wordmark-Logo dezent unten rechts im Hintergrund
+- Status-Bar mit Workspace, CWD, Datum, Uhrzeit
+- Tab-Prefix-Icons je nach Prozess (`◆` Claude, `→` SSH, `▸` Python/Node, `✎` Vim)
+
+### Produktivität
+- **Tab-Rename** — `F2` oder `Strg+Umschalt+E`
+- **Tab-Cycling** — `Strg+Leertaste` (vorwärts), `` Strg+` `` (rückwärts)
+- **File:line Hyperlinks** — `Strg+Klick` auf `path/to/file.py:42` → VS Code an der Zeile
+- **Smart-Paste** — `Strg+Umschalt+V` erkennt Bilder in der Zwischenablage, speichert nach `%TEMP%`, fügt WSL-Pfad ein. Läuft gerade `claude` im Tab → automatisches `@`-Prefix für die Claude Code CLI.
+- **About-Overlay** — `F1` oder Doppel-Rechtsklick → Brand-Info + Link zu stackschmiede.de
+- **Config-Reload** — `F5` (manuell) oder automatisch beim Speichern
+
+### Windows-Integration
+- Windows-Style Clipboard (`Strg+C` kopiert bei Selektion, sonst SIGINT, `Strg+V` paste)
+- Rechtsklick = Paste
+- Shift+Mausrad = seitenweise scrollen, Strg+Mausrad = Font-Zoom
+- WSL als Default-Domain — jeder neue Tab startet direkt in WSL
+
+---
 
 ## Installation
 
-**Voraussetzung:** Windows 10/11 + WSL2 mit einer Linux-Distro (Ubuntu, Debian, …).
+**Voraussetzung:** Windows 10/11 + WSL2 mit einer Linux-Distro (Ubuntu, Debian, …) + [WezTerm](https://wezfurlong.org/wezterm/)
 
-### 1. Repo holen
+### Option A · Installer (empfohlen)
+
+1. `TerminalStack-Setup-v*.exe` aus den [Releases](https://github.com/stackschmiede/stack-terminal/releases) laden
+2. Doppelklick → Wizard führt durch (WSL-Distro + Username werden automatisch erkannt)
+3. Fertig. WezTerm neu starten.
+
+Kein Admin nötig — alles landet im User-Profile.
+
+### Option B · Klassisch via Repo / ZIP
 
 ```powershell
 git clone https://github.com/stackschmiede/stack-terminal.git
 cd stack-terminal
+.\install\install.bat
 ```
 
-Oder als ZIP herunterladen und entpacken.
+Doppelklick auf `install\install.bat` öffnet PowerShell und fragt nach:
+- WSL-Distribution (Default: erste gefundene)
+- WSL-Username (Default: `whoami` in der Distro)
+- Projects-Pfad (Default: `/home/<user>/projects`)
 
-### 2. Installer ausführen
+Der Installer sichert bestehende Configs als `.bak.TIMESTAMP` und kopiert alles nach `%USERPROFILE%`.
 
-Doppelklick auf `install\install.bat` — ein PowerShell-Fenster öffnet sich und fragt nach:
-
-- **WSL-Distribution** (Default: erste gefundene, z. B. `Ubuntu`)
-- **WSL-Username** (Default: `whoami` in der Distro)
-- **Projects-Pfad** (Default: `/home/<user>/projects`)
-
-Der Installer:
-
-1. bietet `winget install wez.wezterm` an, falls WezTerm fehlt
-2. sichert bestehende `%USERPROFILE%\.wezterm.lua` und `.wezterm-assets\` als `.bak.TIMESTAMP`
-3. kopiert Assets + Config nach `%USERPROFILE%`
-4. ersetzt Platzhalter mit deinen Werten
-
-Danach WezTerm neu starten — fertig.
-
-### CLI-Parameter (optional)
-
-```powershell
-.\install\install.ps1 -WslDistro Ubuntu -WslUsername myuser -ProjectsPath /home/myuser/code -Force
-```
-
-### Non-interactive (CI/Scripted)
+### Option C · CLI / CI
 
 ```powershell
 .\install\install.ps1 -NonInteractive -WslDistro Ubuntu -WslUsername myuser -Force
 ```
 
+---
+
 ## Deinstallation
 
-Doppelklick auf `install\uninstall.ps1` (oder über Rechtsklick → „Mit PowerShell ausführen"). Wenn ein Backup existiert, wird es wiederhergestellt.
+Doppelklick auf `install\uninstall.ps1` (oder Rechtsklick → „Mit PowerShell ausführen"). Stellt Backups automatisch wieder her, falls vorhanden.
 
-## Anpassung
+---
 
-Nach der Installation editierst du `%USERPROFILE%\.wezterm.lua` direkt — WezTerm lädt Änderungen live nach.
+## Shortcuts
 
-Typische Anpassungen: Launch-Menü mit eigenen Projekten füllen, Farben tauschen, Font-Size. Details: [`docs/customization.md`](docs/customization.md).
-
-## Shortcuts (Kurzübersicht)
-
+### Tabs
 | Shortcut | Aktion |
 |---|---|
-| `Strg+Umschalt+V` | Smart-Paste (Bild → WSL-Pfad, sonst Text) |
 | `Strg+Umschalt+T` / `+N` | Neuer Tab in WSL |
+| `Strg+Leertaste` | Nächster Tab |
+| `` Strg+` `` | Vorheriger Tab |
 | `F2` / `Strg+Umschalt+E` | Tab umbenennen |
-| `Strg+Umschalt+Bild↑` / `Bild↓` | Tab nach links / rechts verschieben |
-| `F6` | Tab detachen (in eigenes Fenster) |
+| `Strg+Umschalt+Bild↑` / `↓` | Tab verschieben |
+| `F6` | Tab in eigenes Fenster detachen |
 | `Strg+Umschalt+W` | Tab schließen |
-| `Strg+Umschalt+D` / `+R` | Pane horizontal / vertikal |
+
+### Panes
+| Shortcut | Aktion |
+|---|---|
+| `Strg+Umschalt+D` / `+R` | Pane horizontal / vertikal splitten |
 | `Strg+Umschalt+Alt+Pfeile` | Pane wechseln |
-| `Strg+Umschalt+L` | Launcher (Projekte) |
+| `Strg+Umschalt+X` | Pane schließen |
+
+### Clipboard & Paste
+| Shortcut | Aktion |
+|---|---|
+| `Strg+C` | Kopieren (wenn Selektion) / SIGINT (sonst) |
+| `Strg+V` | Paste |
+| `Strg+Umschalt+V` | Smart-Paste (Bild → WSL-Pfad, sonst Text) |
+| `Strg+Umschalt+C` | Paste-Only (kein SIGINT-Fallback) |
+| Rechtsklick | Paste |
+
+### System & Navigation
+| Shortcut | Aktion |
+|---|---|
+| `F1` / Doppel-Rechtsklick | About-Overlay |
+| `F5` | Config neu laden |
+| `Strg+Umschalt+L` | Launcher (Projekte aus Launch-Menu) |
 | `Strg+Umschalt+O` | Workspace-Switcher |
 | `Strg+Umschalt+F` | Scrollback durchsuchen |
 | `Strg+Umschalt+Leer` | Quick Select |
+
+### Scrollback & Zoom
+| Shortcut | Aktion |
+|---|---|
 | `Shift+Mausrad` / `Shift+Bild↑↓` | Seitenweise scrollen |
 | `Strg+Mausrad` / `Strg+=/−/0` | Font-Zoom |
 | `Strg+Klick` auf `file:line` | in VS Code öffnen |
+
+---
+
+## Anpassung
+
+Nach der Installation editierst du `%USERPROFILE%\.wezterm.lua` direkt — WezTerm lädt Änderungen live nach (oder `F5` für manuellen Reload).
+
+Typische Anpassungen:
+- Launch-Menu mit eigenen Projekten füllen
+- Farben in der `ss`-Tabelle oben tauschen
+- Font-Size / Line-Height anpassen
+- Busy-Schwelle via `BUSY_WINDOW` (Default: 3s)
+
+Details: [`docs/customization.md`](docs/customization.md).
+
+---
 
 ## Projektstruktur
 
@@ -98,21 +154,42 @@ Typische Anpassungen: Launch-Menü mit eigenen Projekten füllen, Farben tausche
 stack-terminal/
 ├── config/
 │   ├── wezterm.lua           — Template mit Platzhaltern
-│   └── assets/               — Logo-Dateien
+│   └── assets/               — Logo-Dateien (Wordmark, Icon)
 ├── install/
+│   ├── TerminalStack.iss     — Inno Setup Skript
 │   ├── install.ps1           — PowerShell-Installer
 │   ├── install.bat           — Doppelklick-Wrapper
-│   └── uninstall.ps1         — Restore/Cleanup
+│   ├── uninstall.ps1         — Restore / Cleanup
+│   ├── paste-image.ps1       — Smart-Paste Helper
+│   └── wizard-*.png          — Branded Wizard-Bilder
+├── .github/
+│   └── workflows/release.yml — Auto-Build bei Git-Tag
 ├── docs/
 │   └── customization.md
 └── preview/                  — Screenshots
 ```
+
+---
+
+## Release bauen
+
+```bash
+git tag v0.1.1
+git push --tags
+```
+
+GitHub Actions baut automatisch `TerminalStack-Setup-v0.1.1.exe` + ZIP und erstellt ein Release.
+
+---
 
 ## Credits
 
 - **Brand & Config** · [Stackschmiede](https://stackschmiede.de)
 - **Terminal-Emulator** · [WezTerm](https://wezfurlong.org/wezterm/) von Wez Furlong
 - **Fonts** · [JetBrains Mono](https://www.jetbrains.com/mono/), [Inter](https://rsms.me/inter/)
+- **Installer** · [Inno Setup](https://jrsoftware.org/isinfo.php) von Jordan Russell
+
+---
 
 ## Lizenz
 

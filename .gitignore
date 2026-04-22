@@ -28,6 +28,8 @@ preview/*.jpeg
 preview/*.gif
 preview/*.mp4
 preview/*.webp
+# Ausnahme: explizit für README freigegebene Marketing-Screenshots
+!preview/preview.png
 
 # Lokale Notizen / Logs
 *.log
