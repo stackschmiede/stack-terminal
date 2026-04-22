@@ -2,6 +2,26 @@
 
 Alle relevanten Änderungen werden hier dokumentiert. Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
+## [0.2.0] — 2026-04-22
+
+### Added
+- **Inno Setup Installer** (`install/TerminalStack.iss`) — branded `.exe` Wizard mit Dark/Amber-Design, keine Admin-Rechte nötig, auto-detect WSL-Distro + Username
+- **Wizard-Branding** — `wizard-panel.png` (Seitenleiste) + `wizard-icon.png` (Inner-Pages)
+- **GitHub Actions Release-Workflow** — Auto-Build `.exe` + ZIP bei `git tag v*`
+- **Tab-State-Maschine** — 3 Zustände (idle/busy/attention) via Pane-Fingerprint; erkennt auch `\r`-Overwrites (TUI-Spinner, Streaming)
+- **Busy-State** — Amber-soft wenn Prozess in letzten 3s Output schrieb
+- **About-Overlay** — `F1` oder Doppel-Rechtsklick → PromptInputLine mit Brand-Info + stackschmiede.de
+- **Config-Reload** — `F5` für manuellen Reload
+- **Tab-Cycling** — `Strg+Leertaste` (vorwärts) / `` Strg+` `` (rückwärts)
+- **Status-Bar Hint** — `ⓘ` neben der Uhrzeit als visueller About-Trigger
+
+### Changed
+- **Attention-Clearing** — statt Cursor-Row jetzt Fingerprint-Diff (robust gegen Spinner); cleart nur wenn User *im* Tab etwas tippt, nicht beim Durchtabben
+- **Logo-Wordmark** — 4× Auflösung (1220×248 statt 305×62) — kristallklar auf HiDPI
+
+### Security
+- `.gitignore` erweitert — Preview-Screenshots, lokale Personal-Varianten, Log-Dateien geschützt
+
 ## [0.1.0] — 2026-04-22
 
 ### Erste Veröffentlichung
