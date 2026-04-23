@@ -100,7 +100,7 @@ config.colors = {
 
   tab_bar = {
     background         = ss.bg,
-    active_tab         = { bg_color = ss.primary,  fg_color = ss.bg,      intensity = 'Bold' },
+    active_tab         = { bg_color = ss.accent,   fg_color = ss.bg,      intensity = 'Bold' },
     inactive_tab       = { bg_color = ss.surface,  fg_color = ss.muted },
     inactive_tab_hover = { bg_color = ss.surface2, fg_color = ss.fg,      italic = false },
     new_tab            = { bg_color = ss.bg,       fg_color = ss.primary },
@@ -510,9 +510,12 @@ config.keys = {
   { key = 'f',     mods = 'CTRL|SHIFT', action = act.Search 'CurrentSelectionOrEmptyString' },
   { key = 'Space', mods = 'CTRL|SHIFT', action = act.QuickSelect },
 
-  -- tab-cycling: ctrl+space (vorwärts) / ctrl+` (rückwärts)
-  { key = 'Space', mods = 'CTRL',       action = act.ActivateTabRelative(1) },
-  { key = '`',     mods = 'CTRL',       action = act.ActivateTabRelative(-1) },
+  -- tab-cycling: ctrl+space (vorwärts) / ctrl+alt+← oder ctrl+` (rückwärts)
+  { key = 'Space',     mods = 'CTRL',       action = act.ActivateTabRelative(1) },
+  { key = 'LeftArrow', mods = 'CTRL|ALT',   action = act.ActivateTabRelative(-1) },
+  { key = '`',         mods = 'CTRL',       action = act.ActivateTabRelative(-1) },
+  -- default ctrl+tab deaktivieren
+  { key = 'Tab',       mods = 'CTRL',       action = act.DisableDefaultAssignment },
 }
 
 config.mouse_bindings = {

@@ -2,6 +2,17 @@
 
 Alle relevanten Änderungen werden hier dokumentiert. Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
+## [0.2.1] — 2026-04-23
+
+### Changed
+- **Active-Tab-Farbe** — `amber` → `sage` (Brand-Akzent). Klarere Abgrenzung zum Attention-State inaktiver Tabs, der weiterhin Amber nutzt
+
+### Added
+- **Tab-Cycling** — `Strg+Alt+←` als zweites Rückwärts-Binding (zusätzlich zu `` Strg+` ``)
+
+### Removed
+- **WezTerm-Default `Strg+Tab`** — via `DisableDefaultAssignment` neutralisiert
+
 ## [0.2.0] — 2026-04-22
 
 ### Added
