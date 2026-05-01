@@ -2,10 +2,11 @@
 -- https://stackschmiede.de
 --
 -- Features:
---   · warm workshop brand palette (amber + sage on anthrazit)
+--   · warm workshop brand palette (amber + sage)  ·  dark + light auto (Win11 system-detect)
 --   · WSL2 default domain
 --   · tab blink: idle shell (sage pulse) + attention (amber blink)
 --   · tab rename: F2  or  Ctrl+Shift+E
+--   · theme: F10 toggle light↔dark  ·  Shift+F10 reset auf system-autodetect
 --   · shift + mousewheel: page scroll
 --   · ctrl + mousewheel: font zoom
 --   · windows-style copy/paste  (ctrl+c smart, ctrl+v paste, right-click paste)
@@ -22,9 +23,10 @@ local config = wezterm.config_builder()
 local act = wezterm.action
 
 -- ═══════════════════════════════════════════════════════════════
--- stackschmiede brand palette (werkstatt-de, warm workshop)
+-- stackschmiede brand palette — dark + light (warm workshop)
 -- ═══════════════════════════════════════════════════════════════
-local ss = {
+local palette_dark = {
+  mode         = 'dark',
   bg           = '#0F0F10',
   surface      = '#1A1A1C',
   surface2     = '#222225',
@@ -38,7 +40,182 @@ local ss = {
   success      = '#7FB069',
   warn         = '#E0A96D',
   danger       = '#C97064',
+  ansi = {
+    '#1A1A1C', '#C97064', '#6B8E7F', '#D4A574',
+    '#7A8A99', '#A67F8E', '#8BA99C', '#8A8680',
+  },
+  brights = {
+    '#26262A', '#D98580', '#7FB069', '#E8C493',
+    '#9DB0C0', '#C09AA8', '#94BAB0', '#EDEAE3',
+  },
+  inactive_hsb     = { saturation = 0.9,  brightness = 0.82 },
+  bg_image_opacity = 0.85,
+  -- tab-chip colors (siehe make_colors / format-tab-title)
+  active_chip      = '#6B8E7F',  -- sage (= accent)
+  chip_text        = '#0F0F10',  -- dark anthracite (= bg) — text auf farbigen chips
+  busy_text        = '#E8C493',  -- helles amber (= primarySoft) — busy-state text
 }
+
+local palette_light = {
+  mode         = 'light',
+  -- bg richtung warmes kraftpapier: gibt dim/faint-text (claude diff-context, ansi-grays)
+  -- genug substrat für lesbaren kontrast. reines cream war zu blass.
+  bg           = '#ECE3CC',  -- warm kraftpapier
+  surface      = '#D9CCAE',  -- inactive-tab bg, klar gegen kraftpapier abgesetzt
+  surface2     = '#C5B58F',
+  fg           = '#1A1816',  -- nahezu schwarz, leicht warm
+  muted        = '#4A4339',  -- secondary text — AA+ gegen kraftpapier
+  border       = '#9A8E76',  -- hairlines (sichtbar, nicht dominant)
+  primary      = '#8E5421',  -- amber, kräftiger — workshop-feel auf hell
+  primarySoft  = '#B07840',
+  accent       = '#345146',  -- sage, dunkler
+  accentSoft   = '#557366',
+  success      = '#446F2C',
+  warn         = '#965A1E',
+  danger       = '#8C2E25',
+  ansi = {
+    '#26231E', '#8C2E25', '#345146', '#8E5421',
+    '#1F4A6E', '#5C3548', '#1F5B4F', '#4A4339',
+  },
+  brights = {
+    '#3A352E', '#A8362C', '#557366', '#B07840',
+    '#2D6090', '#7A4862', '#2C7868', '#1A1816',
+  },
+  inactive_hsb     = { saturation = 0.96, brightness = 0.97 },
+  bg_image_opacity = 0.55,
+  -- tab-chip colors: im light mode dark text auf hellem amber (KEIN cream-auf-farbe,
+  -- das wirkt sonst weiß-blass auf hellem terminal)
+  active_chip      = '#B07840',  -- helles amber (= primarySoft) — text drauf bleibt lesbar
+  chip_text        = '#1A1816',  -- dark anthracite (= fg) — kein "weiß"-effekt
+  busy_text        = '#8E5421',  -- kräftiges amber (= primary) — sichtbar auf surface
+}
+
+-- shared palette table — closures (tab-title, status-bar) reference this directly;
+-- mutated in-place on theme switch so re-renders automatically pick up new colors.
+local ss = {}
+local function assign_palette(target)
+  for k in pairs(ss) do ss[k] = nil end
+  for k, v in pairs(target) do ss[k] = v end
+end
+
+local function palette_for(appearance)
+  if appearance and tostring(appearance):find('Light') then return palette_light end
+  return palette_dark
+end
+
+-- helpers — build config-blocks from a palette (used at load + on theme switch)
+local function make_colors(p)
+  return {
+    foreground        = p.fg,
+    background        = p.bg,
+    cursor_bg         = p.primary,
+    cursor_fg         = p.bg,
+    cursor_border     = p.primary,
+    selection_bg      = p.primary,
+    selection_fg      = p.bg,
+    scrollbar_thumb   = p.border,
+    split             = p.border,
+    visual_bell       = p.primary,
+    ansi              = p.ansi,
+    brights           = p.brights,
+    tab_bar = {
+      background         = p.bg,
+      active_tab         = { bg_color = p.active_chip, fg_color = p.chip_text, intensity = 'Bold' },
+      inactive_tab       = { bg_color = p.surface,  fg_color = p.muted },
+      inactive_tab_hover = { bg_color = p.surface2, fg_color = p.fg,      italic = false },
+      new_tab            = { bg_color = p.bg,       fg_color = p.primary },
+      new_tab_hover      = { bg_color = p.surface,  fg_color = p.primarySoft },
+      inactive_tab_edge  = p.bg,
+    },
+  }
+end
+
+local function make_window_frame(p)
+  return {
+    font = wezterm.font { family = 'Inter', weight = 'Medium' },
+    font_size = 10.0,
+    active_titlebar_bg = p.bg,
+    inactive_titlebar_bg = p.bg,
+  }
+end
+
+local function make_background(p)
+  return {
+    { source = { Color = p.bg }, width = '100%', height = '100%', opacity = 1.0 },
+    {
+      source             = { File = '{{ASSETS_PATH}}\\logo-wordmark.png' },
+      repeat_x           = 'NoRepeat',
+      repeat_y           = 'NoRepeat',
+      vertical_align     = 'Bottom',
+      horizontal_align   = 'Right',
+      width              = 305,
+      height             = 62,
+      opacity            = p.bg_image_opacity,
+      horizontal_offset  = -22,
+      vertical_offset    = -18,
+      attachment         = 'Fixed',
+    },
+  }
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- theme-switching: autodetect (Windows light/dark) + manueller override
+--   F10        → toggle light ↔ dark (override aktiv, ignoriert system)
+--   F10+SHIFT  → reset auf autodetect (folgt wieder dem system)
+-- live-poll im update-status erkennt system-theme-wechsel ohne restart
+-- ═══════════════════════════════════════════════════════════════
+wezterm.GLOBAL.theme_override = wezterm.GLOBAL.theme_override or nil
+
+local function safe_get_appearance()
+  local ok, ap = pcall(function() return wezterm.gui.get_appearance() end)
+  if ok and ap then return ap end
+  return 'Dark'
+end
+
+local function effective_appearance(window)
+  local override = wezterm.GLOBAL.theme_override
+  if override == 'dark'  then return 'Dark' end
+  if override == 'light' then return 'Light' end
+  if window then
+    local ok, ap = pcall(function() return window:get_appearance() end)
+    if ok and ap then return ap end
+  end
+  return safe_get_appearance()
+end
+
+local function apply_theme(window)
+  if not window then return end
+  local p = palette_for(effective_appearance(window))
+  if ss.mode == p.mode then return end  -- already correct, no-op (kein reload-loop)
+  assign_palette(p)
+  local overrides = window:get_config_overrides() or {}
+  overrides.colors            = make_colors(p)
+  overrides.window_frame      = make_window_frame(p)
+  overrides.background        = make_background(p)
+  overrides.inactive_pane_hsb = p.inactive_hsb
+  window:set_config_overrides(overrides)
+end
+
+local toggle_theme = wezterm.action_callback(function(window, pane)
+  local cur = effective_appearance(window)
+  wezterm.GLOBAL.theme_override = tostring(cur):find('Light') and 'dark' or 'light'
+  apply_theme(window)
+end)
+
+local reset_theme_auto = wezterm.action_callback(function(window, pane)
+  wezterm.GLOBAL.theme_override = nil
+  apply_theme(window)
+end)
+
+-- initial assignment — respektiert persistenten override, sonst system
+do
+  local override = wezterm.GLOBAL.theme_override
+  local initial_app
+  if     override == 'dark'  then initial_app = 'Dark'
+  elseif override == 'light' then initial_app = 'Light'
+  else                            initial_app = safe_get_appearance() end
+  assign_palette(palette_for(initial_app))
+end
 
 -- ═══════════════════════════════════════════════════════════════
 -- wsl-domain
@@ -67,47 +244,12 @@ config.font = wezterm.font_with_fallback {
 config.font_size = 11.0
 config.line_height = 1.08
 
-config.window_frame = {
-  font = wezterm.font { family = 'Inter', weight = 'Medium' },
-  font_size = 10.0,
-  active_titlebar_bg = ss.bg,
-  inactive_titlebar_bg = ss.bg,
-}
+config.window_frame = make_window_frame(ss)
 
 -- ═══════════════════════════════════════════════════════════════
 -- terminal-palette
 -- ═══════════════════════════════════════════════════════════════
-config.colors = {
-  foreground        = ss.fg,
-  background        = ss.bg,
-  cursor_bg         = ss.primary,
-  cursor_fg         = ss.bg,
-  cursor_border     = ss.primary,
-  selection_bg      = ss.primary,
-  selection_fg      = ss.bg,
-  scrollbar_thumb   = ss.border,
-  split             = ss.border,
-  visual_bell       = ss.primary,
-
-  ansi = {
-    ss.surface, ss.danger, ss.accent, ss.primary,
-    '#7A8A99', '#A67F8E', '#8BA99C', ss.muted,
-  },
-  brights = {
-    ss.border, '#D98580', ss.success, ss.primarySoft,
-    '#9DB0C0', '#C09AA8', '#94BAB0', ss.fg,
-  },
-
-  tab_bar = {
-    background         = ss.bg,
-    active_tab         = { bg_color = ss.accent,   fg_color = ss.bg,      intensity = 'Bold' },
-    inactive_tab       = { bg_color = ss.surface,  fg_color = ss.muted },
-    inactive_tab_hover = { bg_color = ss.surface2, fg_color = ss.fg,      italic = false },
-    new_tab            = { bg_color = ss.bg,       fg_color = ss.primary },
-    new_tab_hover      = { bg_color = ss.surface,  fg_color = ss.primarySoft },
-    inactive_tab_edge  = ss.bg,
-  },
-}
+config.colors = make_colors(ss)
 
 -- ═══════════════════════════════════════════════════════════════
 -- fenster + hintergrund (stackschmiede wordmark unten rechts)
@@ -117,24 +259,9 @@ config.window_padding = { left = 10, right = 10, top = 4, bottom = 70 }
 config.win32_system_backdrop = 'Disable'
 config.window_background_opacity = 1.0
 config.macos_window_background_blur = 0
-config.inactive_pane_hsb = { saturation = 0.9, brightness = 0.82 }
+config.inactive_pane_hsb = ss.inactive_hsb
 
-config.background = {
-  { source = { Color = ss.bg }, width = '100%', height = '100%', opacity = 1.0 },
-  {
-    source             = { File = '{{ASSETS_PATH}}\\logo-wordmark.png' },
-    repeat_x           = 'NoRepeat',
-    repeat_y           = 'NoRepeat',
-    vertical_align     = 'Bottom',
-    horizontal_align   = 'Right',
-    width              = 305,
-    height             = 62,
-    opacity            = 0.85,
-    horizontal_offset  = -22,
-    vertical_offset    = -18,
-    attachment         = 'Fixed',
-  },
-}
+config.background = make_background(ss)
 
 -- ═══════════════════════════════════════════════════════════════
 -- tab-bar
@@ -147,19 +274,58 @@ config.tab_max_width = 34
 
 -- ═══════════════════════════════════════════════════════════════
 -- tab-state-maschine: idle / busy / attention
--- pro pane fingerprint (letzte 12 zeilen) → erkennt auch \r-overwrites
+-- primär: foreground-process-name (bash/zsh/fish → idle, sonst → busy)
+-- fallback: output-fingerprint für "transparente" prozesse (ssh/tmux/mosh/screen)
 -- bell → attn_pending; cleart nur beim Tab-Fokus (nicht bei neuem Output)
 -- ═══════════════════════════════════════════════════════════════
 wezterm.GLOBAL.pane_state = wezterm.GLOBAL.pane_state or {}
 
-local BUSY_WINDOW = 3  -- sekunden seit letztem output → "busy"
+local BUSY_WINDOW = 3  -- sekunden seit letztem output → "busy" (nur im fallback-pfad)
+
+local SHELLS = {
+  bash = true, zsh = true, fish = true, sh = true,
+  dash = true, ksh = true, tcsh = true, pwsh = true, ['powershell'] = true,
+}
+
+-- "transparente" prozesse: wezterm sieht den wrapper, nicht das eigentlich-aktive tool
+-- → für diese auf output-fingerprint zurückfallen
+local TRANSPARENT = {
+  ssh = true, mosh = true, ['mosh-client'] = true,
+  tmux = true, screen = true, byobu = true,
+}
+
+local function proc_basename(name)
+  if not name or name == '' then return nil end
+  local b = name:match('([^/\\]+)$') or name
+  b = b:gsub('%.exe$', '')
+  return b:lower()
+end
 
 local function pane_fingerprint(pane)
   local ok, txt = pcall(function() return pane:get_lines_as_text(12) end)
   if not ok or not txt then return '0:' end
-  -- länge + suffix (letzte 64 zeichen) → robust gegen \r-overwrites in spinner-zeilen
-  local suffix = txt:sub(-64)
-  return tostring(#txt) .. ':' .. suffix
+  -- djb2-hash über kompletten text → robust gegen identische suffixe + \r-overwrites
+  local hash = 5381
+  for i = 1, #txt do
+    hash = (hash * 33 + txt:byte(i)) % 4294967296
+  end
+  return tostring(#txt) .. ':' .. hash
+end
+
+-- entscheidet: ist diese pane aktuell "busy" (nicht-shell-prozess aktiv)?
+local function pane_busy(pane, st, now)
+  -- primär: foreground-process-detection
+  local ok, name = pcall(function() return pane:get_foreground_process_name() end)
+  if ok then
+    local b = proc_basename(name)
+    if b then
+      if SHELLS[b] then return false end
+      if not TRANSPARENT[b] then return true end
+      -- transparent → durchfallen zu fingerprint-fallback
+    end
+  end
+  -- fallback: fingerprint-window (für ssh/tmux/mosh/screen + unerkannte panes)
+  return (now - (st.last_change or 0)) < BUSY_WINDOW
 end
 
 local function get_state(pid)
@@ -184,11 +350,6 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, cfg, hover, max_width)
   local idx = tab.tab_index + 1
   local pane = tab.active_pane
   local title = (pane.title or ''):lower()
-  local cwd = ''
-  if pane.current_working_dir then
-    local path = pane.current_working_dir.file_path or tostring(pane.current_working_dir)
-    cwd = path:gsub('/$', ''):match('([^/]+)$') or path
-  end
   local prefix = '·'
   if title:find('claude') then
     prefix = '◆'
@@ -204,17 +365,17 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, cfg, hover, max_width)
   if override and override ~= '' then
     label = override
   else
-    label = cwd ~= '' and cwd or title
+    label = 'terminal ' .. idx
   end
   if #label > max_width - 6 then
     label = label:sub(1, max_width - 7) .. '…'
   end
-  local text = string.format('  %d %s %s  ', idx, prefix, label)
+  local text = string.format('  %s %s  ', prefix, label)
 
   local pid = tostring(pane.pane_id)
   local st = get_state(pid)
   local now = os.time()
-  local busy = (now - (st.last_change or 0)) < BUSY_WINDOW
+  local busy = pane_busy(pane, st, now)
 
   if tab.is_active then
     st.is_active = true
@@ -227,7 +388,7 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, cfg, hover, max_width)
   if st.attn_pending and not busy then
     return {
       { Background = { Color = ss.primary } },
-      { Foreground = { Color = ss.bg } },
+      { Foreground = { Color = ss.chip_text } },
       { Attribute = { Intensity = 'Bold' } },
       { Text = text },
     }
@@ -237,7 +398,7 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, cfg, hover, max_width)
   if busy then
     return {
       { Background = { Color = ss.surface } },
-      { Foreground = { Color = ss.primarySoft } },
+      { Foreground = { Color = ss.busy_text } },
       { Text = text },
     }
   end
@@ -250,6 +411,9 @@ end)
 -- status-bar + attention-polling (clearing bei neuem output)
 -- ═══════════════════════════════════════════════════════════════
 wezterm.on('update-status', function(window, pane)
+  -- live-poll für system-theme-wechsel (no-op falls mode unverändert)
+  pcall(function() apply_theme(window) end)
+
   -- pane-state-poll: fp-diff → last_change; fp-änderung nach bell → attn clear (busy-wieder)
   -- gesamter poll in pcall: fehler (tab/pane gerade geschlossen) dürfen status-bar nicht blocken
   pcall(function()
@@ -333,7 +497,10 @@ end)
 config.scrollback_lines = 50000
 config.animation_fps = 1
 config.max_fps = 60
-config.status_update_interval = 2000
+-- Software-Rendering verhindert GPU-Context-Loss-Crash nach Monitor-Wake
+-- Alternative: 'WebGpu' (moderner, testen falls Software zu langsam wirkt)
+config.front_end = 'Software'
+config.status_update_interval = 3000
 config.cursor_blink_ease_in = 'Constant'
 config.cursor_blink_ease_out = 'Constant'
 config.default_cursor_style = 'SteadyBar'
@@ -398,38 +565,43 @@ local new_tab_wsl = wezterm.action_callback(function(window, pane)
   )
 end)
 
-local about_overlay = act.PromptInputLine {
-  description = wezterm.format {
-    { Foreground = { Color = ss.primary } }, { Attribute = { Intensity = 'Bold' } },
-    { Text = '  TerminalStack  ·  Stackschmiede\n' },
-    { Attribute = { Intensity = 'Normal' } },
-    { Foreground = { Color = ss.border } },
-    { Text = '  ──────────────────────────────────────\n' },
-    { Foreground = { Color = ss.muted } },    { Text = '  Web      ' },
-    { Foreground = { Color = ss.accentSoft } }, { Text = 'https://stackschmiede.de\n' },
-    { Foreground = { Color = ss.muted } },    { Text = '  Stack    ' },
-    { Foreground = { Color = ss.fg } },       { Text = 'WSL2 · WezTerm · Claude Code\n' },
-    { Foreground = { Color = ss.muted } },    { Text = '  Lizenz   ' },
-    { Foreground = { Color = ss.fg } },       { Text = 'MIT\n' },
-    { Foreground = { Color = ss.border } },
-    { Text = '  ──────────────────────────────────────\n' },
-    { Foreground = { Color = ss.muted } },    { Text = '  [Enter] schließen\n' },
-  },
-  action = wezterm.action_callback(function(w, p, line) end),
-}
+-- action_callback wrap, damit wezterm.format mit aktueller palette gerendert wird
+local about_overlay = wezterm.action_callback(function(window, pane)
+  window:perform_action(act.PromptInputLine {
+    description = wezterm.format {
+      { Foreground = { Color = ss.primary } }, { Attribute = { Intensity = 'Bold' } },
+      { Text = '  TerminalStack  ·  Stackschmiede\n' },
+      { Attribute = { Intensity = 'Normal' } },
+      { Foreground = { Color = ss.border } },
+      { Text = '  ──────────────────────────────────────\n' },
+      { Foreground = { Color = ss.muted } },    { Text = '  Web      ' },
+      { Foreground = { Color = ss.accentSoft } }, { Text = 'https://stackschmiede.de\n' },
+      { Foreground = { Color = ss.muted } },    { Text = '  Stack    ' },
+      { Foreground = { Color = ss.fg } },       { Text = 'WSL2 · WezTerm · Claude Code\n' },
+      { Foreground = { Color = ss.muted } },    { Text = '  Lizenz   ' },
+      { Foreground = { Color = ss.fg } },       { Text = 'MIT\n' },
+      { Foreground = { Color = ss.border } },
+      { Text = '  ──────────────────────────────────────\n' },
+      { Foreground = { Color = ss.muted } },    { Text = '  [Enter] schließen\n' },
+    },
+    action = wezterm.action_callback(function(w, p, line) end),
+  }, pane)
+end)
 
-local rename_tab = act.PromptInputLine {
-  description = wezterm.format {
-    { Attribute = { Intensity = 'Bold' } },
-    { Foreground = { Color = ss.primary } },
-    { Text = 'Rename tab (enter to set, empty to reset):' },
-  },
-  action = wezterm.action_callback(function(window, pane, line)
-    if line then
-      window:active_tab():set_title(line)
-    end
-  end),
-}
+local rename_tab = wezterm.action_callback(function(window, pane)
+  window:perform_action(act.PromptInputLine {
+    description = wezterm.format {
+      { Attribute = { Intensity = 'Bold' } },
+      { Foreground = { Color = ss.primary } },
+      { Text = 'Rename tab (enter to set, empty to reset):' },
+    },
+    action = wezterm.action_callback(function(w, p, line)
+      if line then
+        w:active_tab():set_title(line)
+      end
+    end),
+  }, pane)
+end)
 
 -- detach tab into its own window (requires recent wezterm for true move;
 -- falls back to SpawnWindow on older builds)
@@ -486,6 +658,10 @@ config.keys = {
   { key = 'F6',                            action = detach_tab },
 
   { key = 'F5',                      action = act.ReloadConfiguration },
+
+  -- theme: F10 toggle light↔dark (override) · Shift+F10 reset auf system-autodetect
+  { key = 'F10',                     action = toggle_theme },
+  { key = 'F10', mods = 'SHIFT',     action = reset_theme_auto },
 
   { key = '-', mods = 'CTRL',       action = act.DecreaseFontSize },
   { key = '=', mods = 'CTRL',       action = act.IncreaseFontSize },
