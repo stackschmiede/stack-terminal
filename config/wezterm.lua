@@ -73,13 +73,17 @@ local palette_light = {
   success      = '#446F2C',
   warn         = '#965A1E',
   danger       = '#8C2E25',
+  -- ANSI-mapping light: black=text, white=helle surface, bright-black=mid-warm-grey
+  -- (lesbar als bg + als muted text), bright-white=hellst (cream highlight).
+  -- Wichtig für TUIs wie claude-code, die `bg=bright-black, fg=default` für input-blöcke
+  -- rendern — dunkel-auf-dunkel-werte (vorher: `#3A352E` + `#1A1816`) sind unlesbar.
   ansi = {
     '#26231E', '#8C2E25', '#345146', '#8E5421',
-    '#1F4A6E', '#5C3548', '#1F5B4F', '#4A4339',
+    '#1F4A6E', '#5C3548', '#1F5B4F', '#E5D9BB',
   },
   brights = {
-    '#3A352E', '#A8362C', '#557366', '#B07840',
-    '#2D6090', '#7A4862', '#2C7868', '#1A1816',
+    '#7A6F5C', '#A8362C', '#557366', '#B07840',
+    '#2D6090', '#7A4862', '#2C7868', '#FAF4E5',
   },
   inactive_hsb     = { saturation = 0.96, brightness = 0.97 },
   bg_image_opacity = 0.55,
