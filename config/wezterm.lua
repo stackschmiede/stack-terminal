@@ -187,10 +187,16 @@ local function effective_appearance(window)
   return safe_get_appearance()
 end
 
+-- per-window-id tracker für angewandten mode — nach config-reload wird marker
+-- gecleart (siehe window-config-reloaded event), sodass next apply_theme die
+-- neuen palette-werte in die overrides schreibt (sonst blockiert der no-op-guard).
+wezterm.GLOBAL.applied_mode = wezterm.GLOBAL.applied_mode or {}
+
 local function apply_theme(window)
   if not window then return end
+  local wid = tostring(window:window_id())
   local p = palette_for(effective_appearance(window))
-  if ss.mode == p.mode then return end  -- already correct, no-op (kein reload-loop)
+  if wezterm.GLOBAL.applied_mode[wid] == p.mode then return end  -- no-op (kein loop bei polling)
   assign_palette(p)
   local overrides = window:get_config_overrides() or {}
   overrides.colors            = make_colors(p)
@@ -198,7 +204,17 @@ local function apply_theme(window)
   overrides.background        = make_background(p)
   overrides.inactive_pane_hsb = p.inactive_hsb
   window:set_config_overrides(overrides)
+  wezterm.GLOBAL.applied_mode[wid] = p.mode
 end
+
+-- nach config-reload (F5): marker clearen, sodass next update-status die palette
+-- neu in die overrides schreibt — sonst gewinnen die alten overrides der session
+-- über die frisch geladenen base-colors aus config.colors.
+wezterm.on('window-config-reloaded', function(window, pane)
+  local wid = tostring(window:window_id())
+  wezterm.GLOBAL.applied_mode[wid] = nil
+  apply_theme(window)
+end)
 
 local toggle_theme = wezterm.action_callback(function(window, pane)
   local cur = effective_appearance(window)
