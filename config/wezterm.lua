@@ -73,17 +73,17 @@ local palette_light = {
   success      = '#446F2C',
   warn         = '#965A1E',
   danger       = '#8C2E25',
-  -- ANSI-mapping light: black=text, white=helle surface, bright-black=mid-warm-grey
-  -- (lesbar als bg + als muted text), bright-white=hellst (cream highlight).
-  -- Wichtig für TUIs wie claude-code, die `bg=bright-black, fg=default` für input-blöcke
-  -- rendern — dunkel-auf-dunkel-werte (vorher: `#3A352E` + `#1A1816`) sind unlesbar.
+  -- ANSI-mapping light (gruvbox-light-style): alle text-slots dunkel auf hellem bg.
+  -- `white` (7) + `bright-white` (15) als FG müssen lesbar sein — nicht hell-cream.
+  -- Nur `bright-black` (8) bleibt mid-warm-grey: dient als bg für claude-input-blocks
+  -- (Kontrast 5.3:1 gegen default fg `#1A1816`) und als very-muted text (3:1 → AA-large).
   ansi = {
     '#26231E', '#8C2E25', '#345146', '#8E5421',
-    '#1F4A6E', '#5C3548', '#1F5B4F', '#E5D9BB',
+    '#1F4A6E', '#5C3548', '#1F5B4F', '#5A5247',  -- 7 white = warm-grey-dark (text, ~6:1)
   },
   brights = {
-    '#7A6F5C', '#A8362C', '#557366', '#B07840',
-    '#2D6090', '#7A4862', '#2C7868', '#FAF4E5',
+    '#7A6F5C', '#A8362C', '#557366', '#B07840',  -- 8 bright-black = mid-warm-grey (block-bg)
+    '#2D6090', '#7A4862', '#2C7868', '#3C3530',  -- 15 bright-white = sehr dunkel (text, ~10:1)
   },
   inactive_hsb     = { saturation = 0.96, brightness = 0.97 },
   bg_image_opacity = 0.55,
