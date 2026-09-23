@@ -2,6 +2,18 @@
 
 Alle relevanten Änderungen werden hier dokumentiert. Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
+## [0.3.0] — 2026-09-23
+
+### Fixed
+- **Links anklickbar** — einfacher Linksklick (ohne Drag) öffnet den Link unter dem Cursor (`CompleteSelectionOrOpenLinkAtMouseCursor`). Vorher öffnete nur `Strg+Klick`, der Plain-Klick verwarf den Link
+- **URLs → Browser** — `open-uri` startet den Default-Browser explizit über `rundll32 url.dll,FileProtocolHandler` statt über den WezTerm-Default. Kein Konsolen-Flackern, `&` in Query-Strings bleibt intakt
+- **file:line → Editor** — `wsl.exe -e <editor>` fand Windows-Editoren im WSL-PATH nie (execvpe nutzt den init-PATH, nicht den Interop-PATH). Start läuft jetzt über `sh -c`; relative Pfade werden gegen das Pane-CWD aufgelöst, `~/` expandiert
+
+### Added
+- **`FILE_LINK_EDITOR`** — Editor-Kommando für `file:line`-Links konfigurierbar (`code`, `antigravity-ide`, `cursor`, …)
+- **`Strg+Umschalt+Klick`** — Link öffnen in TUIs mit Maus-Capture (vim, htop)
+- **Dark/Light-Theme** — Auto-Detect über die Windows-Systemeinstellung, `F10` Toggle light↔dark, `Shift+F10` Reset auf Auto
+
 ## [0.2.1] — 2026-04-23
 
 ### Changed

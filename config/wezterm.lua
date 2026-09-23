@@ -10,7 +10,7 @@
 --   · shift + mousewheel: page scroll
 --   · ctrl + mousewheel: font zoom
 --   · windows-style copy/paste  (ctrl+c smart, ctrl+v paste, right-click paste)
---   · hyperlinks for file:line  (opens in VS Code)
+--   · links: click / ctrl+click  ·  urls → browser, file:line → editor (FILE_LINK_EDITOR)
 --
 -- Installer-filled placeholders:
 --   {{WSL_USERNAME}}   — your wsl username
@@ -485,8 +485,14 @@ wezterm.on('update-status', function(window, pane)
 end)
 
 -- ═══════════════════════════════════════════════════════════════
--- hyperlinks (urls + file:line → vscode in wsl)
+-- hyperlinks (urls → browser · file:line → editor in wsl)
 -- ═══════════════════════════════════════════════════════════════
+-- editor für file:line-links. muss im WSL-PATH auffindbar sein — windows-interop
+-- reicht: 'code' (VS Code), 'antigravity-ide' (Antigravity), 'cursor', …
+-- start läuft über `sh -c`, weil `wsl.exe -e <cmd>` windows-pfade aus dem PATH
+-- NICHT auflöst (execvpe nutzt den init-PATH, nicht den interop-PATH der session).
+local FILE_LINK_EDITOR = 'code'
+
 local hyperlinks = wezterm.default_hyperlink_rules()
 
 table.insert(hyperlinks, {
@@ -501,13 +507,39 @@ table.insert(hyperlinks, {
 
 config.hyperlink_rules = hyperlinks
 
+-- pane-cwd als linux-pfad (nil bei unbekanntem cwd oder windows-pfad)
+local function pane_linux_cwd(pane)
+  local ok, cwd_uri = pcall(function() return pane:get_current_working_dir() end)
+  if not ok or not cwd_uri then return nil end
+  local path = cwd_uri.file_path or tostring(cwd_uri)
+  if type(path) ~= 'string' then return nil end
+  path = path:gsub('^file://[^/]*', '')
+  if path:sub(1, 1) ~= '/' or path:match('^/%a:/') then return nil end
+  return (path:gsub('/$', ''))
+end
+
+-- `$0` = editor, `$1` = ziel. `~/` wird shell-seitig auf $HOME expandiert.
+local EDITOR_SH = 't="$1"; case "$t" in "~/"*) t="$HOME/${t#"~/"}";; esac; exec "$0" -g "$t"'
+
 wezterm.on('open-uri', function(window, pane, uri)
-  if uri:match('^https?://') or uri:match('^mailto:') then
-    return
+  -- urls + mailto → default-browser via windows-shell. rundll32 statt `cmd /c start`:
+  -- kein konsolen-flackern, kein '&'-parsing durch cmd.
+  if uri:match('^%a[%w+.-]*://') or uri:match('^mailto:') then
+    wezterm.background_child_process { 'rundll32.exe', 'url.dll,FileProtocolHandler', uri }
+    return false
   end
-  local file, line = uri:match('^(.+):(%d+)')
-  local arg = file and (file .. ':' .. line) or uri
-  wezterm.background_child_process { 'wsl.exe', '-e', 'code', '-g', arg }
+
+  -- file:line → editor. relative pfade gegen das pane-cwd auflösen.
+  local file, line = uri:match('^(.-):(%d+)')
+  if not file then file = uri end
+  if file:sub(1, 1) ~= '/' and file:sub(1, 2) ~= '~/' then
+    local cwd = pane_linux_cwd(pane)
+    if cwd then file = cwd .. '/' .. file end
+  end
+  local target = line and (file .. ':' .. line) or file
+  wezterm.background_child_process {
+    'wsl.exe', '-d', '{{WSL_DISTRO}}', '-e', 'sh', '-c', EDITOR_SH, FILE_LINK_EDITOR, target,
+  }
   return false
 end)
 
@@ -718,10 +750,14 @@ config.mouse_bindings = {
   { event = { Down = { streak = 1, button = 'Right' } }, mods = 'NONE', action = act.PasteFrom 'Clipboard' },
   -- doppel-rechtsklick: about-overlay (hintergrundbild nicht anklickbar in wezterm)
   { event = { Down = { streak = 2, button = 'Right' } }, mods = 'NONE', action = about_overlay },
-  { event = { Up = { streak = 1, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
+  -- linksklick ohne drag: link unter dem cursor öffnen · mit drag: selektion → clipboard
+  { event = { Up = { streak = 1, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelectionOrOpenLinkAtMouseCursor 'Clipboard' },
   { event = { Up = { streak = 2, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
   { event = { Up = { streak = 3, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
+  -- strg+klick: link öffnen (auch bei bestehender selektion)
+  -- strg+shift+klick: dito in TUIs mit maus-capture (vim, htop — shift umgeht mouse-reporting)
   { event = { Up = { streak = 1, button = 'Left' } }, mods = 'CTRL', action = act.OpenLinkAtMouseCursor },
+  { event = { Up = { streak = 1, button = 'Left' } }, mods = 'CTRL|SHIFT', action = act.OpenLinkAtMouseCursor },
 
   -- ctrl + wheel → zoom
   { event = { Down = { streak = 1, button = { WheelUp = 1 } } }, mods = 'CTRL', action = act.IncreaseFontSize },

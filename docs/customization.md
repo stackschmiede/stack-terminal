@@ -87,6 +87,20 @@ config.default_domain = 'WSL:Debian'
 
 Die `new_tab_wsl`-Callback-Funktion referenziert ebenfalls den Distro-Namen — dort auch anpassen.
 
+## Links & Editor
+
+Klick (ohne Drag) oder `Strg+Klick` öffnet den Link unter dem Cursor. URLs und `mailto:` gehen an den Windows-Default-Browser (`rundll32 url.dll,FileProtocolHandler`), `file:line`-Treffer an den Editor:
+
+```lua
+local FILE_LINK_EDITOR = 'code'   -- 'antigravity-ide', 'cursor', …
+```
+
+Das Kommando muss im WSL-PATH auffindbar sein — die Windows-Interop-Pfade reichen (`which code` in WSL prüfen). Relative Pfade werden gegen das CWD des Panes aufgelöst (braucht OSC 7 aus der Shell, wie die CWD-Anzeige in der Status-Bar), `~/` gegen `$HOME`.
+
+In TUIs mit Maus-Capture (vim, htop) fängt die App den Klick ab — `Strg+Umschalt+Klick` umgeht das.
+
+Plain-Klick auf Links wieder abschalten: in `config.mouse_bindings` bei `Up { streak = 1 }` / `mods = 'NONE'` die Action zurück auf `act.CompleteSelection 'Clipboard'` setzen — dann öffnet nur noch `Strg+Klick`.
+
 ## Debugging
 
 WezTerm hat ein eingebautes Debug-Overlay: `Strg+Umschalt+L` → `DebugOverlay` (oder in `config.keys` ein eigenes Keybinding legen). Lua-Fehler erscheinen hier in Rot, inkl. Stack-Trace.

@@ -32,7 +32,7 @@ Attention-Marker bleiben stehen bis du *im Tab etwas tippst* — reines Durchtab
 ### Produktivität
 - **Tab-Rename** — `F2` oder `Strg+Umschalt+E`
 - **Tab-Cycling** — `Strg+Leertaste` (vorwärts), `` Strg+` `` (rückwärts)
-- **File:line Hyperlinks** — `Strg+Klick` auf `path/to/file.py:42` → VS Code an der Zeile
+- **Klickbare Links** — Klick oder `Strg+Klick`: URLs → Default-Browser, `path/to/file.py:42` → Editor an der Zeile (`FILE_LINK_EDITOR`, Default `code`; relative Pfade werden gegen das Pane-CWD aufgelöst)
 - **Smart-Paste** — `Strg+Umschalt+V` erkennt Bilder in der Zwischenablage, speichert nach `%TEMP%`, fügt WSL-Pfad ein. Läuft gerade `claude` im Tab → automatisches `@`-Prefix für die Claude Code CLI.
 - **About-Overlay** — `F1` oder Doppel-Rechtsklick → Brand-Info + Link zu stackschmiede.de
 - **Config-Reload** — `F5` (manuell) oder automatisch beim Speichern
@@ -133,7 +133,9 @@ Doppelklick auf `install\uninstall.ps1` (oder Rechtsklick → „Mit PowerShell 
 |---|---|
 | `Shift+Mausrad` / `Shift+Bild↑↓` | Seitenweise scrollen |
 | `Strg+Mausrad` / `Strg+=/−/0` | Font-Zoom |
-| `Strg+Klick` auf `file:line` | in VS Code öffnen |
+| Klick / `Strg+Klick` auf URL | im Default-Browser öffnen |
+| Klick / `Strg+Klick` auf `file:line` | im Editor öffnen (`FILE_LINK_EDITOR`) |
+| `Strg+Umschalt+Klick` | Link öffnen in TUIs mit Maus-Capture (vim, htop) |
 
 ---
 
@@ -146,6 +148,7 @@ Typische Anpassungen:
 - Farben in der `ss`-Tabelle oben tauschen
 - Font-Size / Line-Height anpassen
 - Busy-Schwelle via `BUSY_WINDOW` (Default: 3s)
+- Editor für `file:line`-Links via `FILE_LINK_EDITOR` (`code`, `antigravity-ide`, `cursor`, …)
 
 Details: [`docs/customization.md`](docs/customization.md).
 
