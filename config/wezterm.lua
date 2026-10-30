@@ -10,7 +10,10 @@
 --   · shift + mousewheel: page scroll
 --   · ctrl + mousewheel: font zoom
 --   · windows-style copy/paste  (ctrl+c smart, ctrl+v paste, right-click paste)
---   · links: click / ctrl+click  ·  urls → browser, file:line → editor (FILE_LINK_EDITOR)
+--   · links: click / ctrl+click  ·  urls → browser, pfade[:zeile] → editor (FILE_LINK_EDITOR)
+--   · maus auch in TUIs mit maus-capture (claude code, vim, htop): klick / selektion / paste bleiben beim terminal
+--   · close-confirm: fenster / tab / pane schließen fragt nach (y/n)
+--   · claude-abo-nutzung am unteren fensterrand (5h · 7d · modell-fenster; poller in WSL, braucht jq + curl)
 --
 -- Installer-filled placeholders:
 --   {{WSL_USERNAME}}   — your wsl username
@@ -143,8 +146,14 @@ local function make_window_frame(p)
   }
 end
 
+-- nutzungs-bild (CLAUDE_USAGE.position = 'bottom'): schmaler streifen direkt am unteren fensterrand,
+-- links neben dem logo. größe = png-pixel, skaliert wird nichts; die breite ist nur platz nach
+-- rechts, transparenter rest kostet nichts.
+-- x = linker rand IM bild: horizontal_offset kam bei align Left im fenster nicht an (text am fensterrand).
+local CU_CANVAS = { w = 1800, h = 40, x = 24 }
+
 local function make_background(p)
-  return {
+  local layers = {
     { source = { Color = p.bg }, width = '100%', height = '100%', opacity = 1.0 },
     {
       source             = { File = '{{ASSETS_PATH}}\\logo-wordmark.png' },
@@ -160,6 +169,20 @@ local function make_background(p)
       attachment         = 'Fixed',
     },
   }
+  if wezterm.GLOBAL.cu_png then
+    layers[#layers + 1] = {
+      source             = { File = wezterm.GLOBAL.cu_png },
+      repeat_x           = 'NoRepeat',
+      repeat_y           = 'NoRepeat',
+      vertical_align     = 'Bottom',
+      horizontal_align   = 'Left',
+      width              = CU_CANVAS.w,
+      height             = CU_CANVAS.h,
+      opacity            = 1.0,
+      attachment         = 'Fixed',
+    }
+  end
+  return layers
 end
 
 -- ═══════════════════════════════════════════════════════════════
@@ -187,16 +210,17 @@ local function effective_appearance(window)
   return safe_get_appearance()
 end
 
--- per-window-id tracker für angewandten mode — nach config-reload wird marker
--- gecleart (siehe window-config-reloaded event), sodass next apply_theme die
--- neuen palette-werte in die overrides schreibt (sonst blockiert der no-op-guard).
+-- per-window-id tracker für den angewandten stand (`mode|png`: theme + nutzungs-bild) —
+-- nach config-reload wird marker gecleart (siehe window-config-reloaded event), sodass next
+-- apply_theme die neuen palette-werte in die overrides schreibt (sonst blockiert der no-op-guard).
 wezterm.GLOBAL.applied_mode = wezterm.GLOBAL.applied_mode or {}
 
 local function apply_theme(window)
   if not window then return end
   local wid = tostring(window:window_id())
   local p = palette_for(effective_appearance(window))
-  if wezterm.GLOBAL.applied_mode[wid] == p.mode then return end  -- no-op (kein loop bei polling)
+  local marker = p.mode .. '|' .. tostring(wezterm.GLOBAL.cu_png)
+  if wezterm.GLOBAL.applied_mode[wid] == marker then return end  -- no-op (kein loop bei polling)
   assign_palette(p)
   local overrides = window:get_config_overrides() or {}
   overrides.colors            = make_colors(p)
@@ -204,7 +228,7 @@ local function apply_theme(window)
   overrides.background        = make_background(p)
   overrides.inactive_pane_hsb = p.inactive_hsb
   window:set_config_overrides(overrides)
-  wezterm.GLOBAL.applied_mode[wid] = p.mode
+  wezterm.GLOBAL.applied_mode[wid] = marker
 end
 
 -- nach config-reload (F5): marker clearen, sodass next update-status die palette
@@ -428,6 +452,264 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, cfg, hover, max_width)
 end)
 
 -- ═══════════════════════════════════════════════════════════════
+-- claude-abo-nutzung (5h-fenster · 7d · modell-fenster)
+-- ═══════════════════════════════════════════════════════════════
+-- quelle: `%USERPROFILE%\.wezterm-claude-usage.sh` (vom installer kopiert) läuft alle
+-- `interval` sekunden in WSL, liest den oauth-token aus <dir>/.credentials.json (bleibt
+-- in WSL — nie in dieser config, nie in argv) und schreibt NUR prozente + reset-zeiten
+-- nach `%USERPROFILE%\.wezterm-claude-usage.json`. hier wird nur dieser cache gelesen.
+-- braucht in WSL: jq + curl (`sudo apt install jq curl`). anzeige: `◐ 5h 42% ↻14:30 · 7d 18% · Fable 31%`
+-- farbe = restkontingent: grün → amber → rot nach genutztem anteil (stufen `thresholds`), ab der
+-- rot-stufe fett; kreis-glyph ○◔◑◕● = füllstand der gezeigten zahl. `◌ … (10m)` = cache veraltet,
+-- `claude: login` = token abgelaufen (claude code einmal starten).
+-- anzeige-ort (`position`): wezterm hat nur EINE leiste, der freie streifen unter dem terminal ist
+-- nur per background-layer erreichbar. 'bottom' rendert die nutzung deshalb als transparentes PNG
+-- (`%USERPROFILE%\.wezterm-claude-usage-render.ps1`, nur bei inhalts-änderung) und legt es unten
+-- links ein; 'top' schreibt sie rechts in die tab-leiste. kommt nach CU_RENDER_TIMEOUT sekunden
+-- kein PNG, fällt die anzeige automatisch auf 'top' zurück (log_error); F5 versucht es neu.
+local CLAUDE_USAGE = {
+  enabled    = true,
+  position   = 'bottom',                  -- 'bottom' = bild unten links im fenster | 'top' = rechts in der tab-leiste
+  interval   = 300,                       -- sekunden zwischen zwei abfragen (1 request / account)
+  accounts   = {                          -- label = prefix der zeile ('' = keiner) · dir = claude-config-dir in WSL
+    { label = '', dir = '~/.claude' },
+  },
+  rows       = nil,                       -- nil = alle rows des servers · sonst z. b. { '5h', '7d', 'Opus' }
+  show_reset = 'session',                 -- reset-zeit (↻) zeigen: 'session' (nur 5h) | 'all' | 'none'
+  numbers    = 'used',                    -- zahl + glyph: 'used' (genutzt, wie /usage) | 'left' (übrig, batterie-logik)
+  thresholds = { 50, 75, 90 },            -- genutzt in %: bis 50 grün · 50→75 grün→amber · 75→90 amber→rot · ab 90 rot + fett
+}
+local CU_SCRIPT = os.getenv('USERPROFILE') .. '\\.wezterm-claude-usage.sh'
+local CU_CACHE  = os.getenv('WEZTERM_CLAUDE_USAGE_CACHE')          -- override nur für tests
+  or (os.getenv('USERPROFILE') .. '\\.wezterm-claude-usage.json')
+local CU_RENDER = os.getenv('USERPROFILE') .. '\\.wezterm-claude-usage-render.ps1'
+local CU_BASE   = os.getenv('USERPROFILE') .. '\\.wezterm-claude-usage'  -- + .a.png · .b.png · .spec · .err
+local CU_RENDER_TIMEOUT = 20                                             -- sekunden bis zum fallback auf 'top'
+local CU_FONT_PT = 10                                                    -- schriftgröße im bild (px = pt × dpi / 72)
+local CU_PIE    = { '○', '◔', '◑', '◕', '●' }                        -- füllstand in 5 stufen
+local CU_STOPS  = { 'success', 'success', 'warn', 'danger', 'danger' }  -- farbverlauf: 0 · t1 · t2 · t3 · 100
+
+local function cu_pie(frac)  -- frac 0..1 gefüllt
+  local i = math.floor(frac * 4 + 0.5) + 1
+  return CU_PIE[math.max(1, math.min(#CU_PIE, i))]
+end
+
+local function cu_hex_rgb(hex)
+  local r, g, b = tostring(hex):match('^#(%x%x)(%x%x)(%x%x)$')
+  if not r then return nil end
+  return tonumber(r, 16), tonumber(g, 16), tonumber(b, 16)
+end
+
+local function cu_mix(a, b, t)  -- zwei hex-farben linear mischen, t 0..1
+  local r1, g1, b1 = cu_hex_rgb(a)
+  local r2, g2, b2 = cu_hex_rgb(b)
+  if not (r1 and r2) then return a end
+  return string.format('#%02X%02X%02X',
+    math.floor(r1 + (r2 - r1) * t + 0.5),
+    math.floor(g1 + (g2 - g1) * t + 0.5),
+    math.floor(b1 + (b2 - b1) * t + 0.5))
+end
+
+-- farbe nach genutztem anteil (palette-live: ss.success / ss.warn / ss.danger, folgt dem theme);
+-- server-severity hebt nur an: warning ≥ t2, critical = rot
+local function cu_color(used, severity)
+  if severity == 'critical' then return ss.danger end
+  local t = CLAUDE_USAGE.thresholds or { 50, 75, 90 }
+  if severity == 'warning' then used = math.max(used, t[2]) end
+  local stops = { 0, t[1], t[2], t[3], 100 }
+  for i = 1, #stops - 1 do
+    if used <= stops[i + 1] then
+      local span = stops[i + 1] - stops[i]
+      local f = span > 0 and (used - stops[i]) / span or 1
+      return cu_mix(ss[CU_STOPS[i]], ss[CU_STOPS[i + 1]], f)
+    end
+  end
+  return ss.danger
+end
+
+local function cu_read_cache()
+  local f = io.open(CU_CACHE, 'r')
+  if not f then return nil end
+  local raw = f:read('*a')
+  f:close()
+  local ok, data = pcall(wezterm.json_parse, raw)
+  if ok and type(data) == 'table' then return data end
+  return nil
+end
+
+-- poller starten (max. 1× / 60 s — guard in GLOBAL überlebt config-reloads)
+local function cu_spawn(now)
+  local last = tonumber(wezterm.GLOBAL.cu_spawn_at) or 0
+  if now - last < 60 and now - last >= 0 then return end
+  wezterm.GLOBAL.cu_spawn_at = now
+  local args = {
+    'wsl.exe', '-d', '{{WSL_DISTRO}}', '-e', 'sh', '-c',
+    's="$1"; shift; exec bash "$(wslpath -u "$s")" "$@"', '_',
+    CU_SCRIPT, '--out', CU_CACHE, '--now', tostring(now),
+    '--ttl', tostring(math.floor(CLAUDE_USAGE.interval / 2)),
+  }
+  for _, a in ipairs(CLAUDE_USAGE.accounts) do
+    args[#args + 1] = '--account'
+    args[#args + 1] = (a.label or '') .. '=' .. a.dir
+  end
+  wezterm.background_child_process(args)
+end
+
+local function cu_row_wanted(row)
+  local want = CLAUDE_USAGE.rows
+  if not want then return true end
+  for _, w in ipairs(want) do
+    if w:lower() == tostring(row.label or ''):lower() or w == row.kind then return true end
+  end
+  return false
+end
+
+local function cu_reset_text(row, now)
+  local mode = CLAUDE_USAGE.show_reset
+  local at = tonumber(row.resets_at)
+  if mode == 'none' or not at then return '' end
+  if mode == 'session' and row.kind ~= 'session' then return '' end
+  return ' ↻' .. os.date(at - now < 86400 and '%H:%M' or '%a %H:%M', at)
+end
+
+-- anzeige als liste von runs { c = farbe, t = text, b = fett, p = füllstand 0..1 }, accounts
+-- nebeneinander ({} wenn feature aus). p = kreis vor dem text: glyph in der tab-leiste, gezeichnet im bild.
+local function cu_runs(now)
+  if not CLAUDE_USAGE.enabled then return {} end
+  local data = cu_read_cache()
+  local age = data and (now - (tonumber(data.fetched_at) or 0)) or math.huge
+  if age >= CLAUDE_USAGE.interval or age < 0 then cu_spawn(now) end  -- age < 0: uhr zurückgestellt
+  local accounts = data and data.accounts
+  if type(accounts) ~= 'table' or #accounts == 0 then
+    return { { c = ss.muted, t = '◌ claude …' } }
+  end
+  local left_mode = CLAUDE_USAGE.numbers == 'left'
+  local danger_at = (CLAUDE_USAGE.thresholds or {})[3] or 90
+  local runs = {}
+  local function push(color, text, bold, pie)
+    runs[#runs + 1] = { c = color, t = text, b = bold, p = pie }
+  end
+  for i, acc in ipairs(accounts) do
+    if i > 1 then push(ss.border, '  ‖  ') end
+    local prefix = (acc.label and acc.label ~= '') and (acc.label .. ' ') or ''
+    local rows = {}
+    for _, r in ipairs(acc.rows or {}) do
+      if cu_row_wanted(r) then rows[#rows + 1] = r end
+    end
+    local data_age = now - (tonumber(acc.updated_at) or 0)
+    local stale = data_age > CLAUDE_USAGE.interval * 2 + 60
+    if #rows == 0 then
+      if acc.error == 'login' then push(ss.danger, prefix .. 'claude: login')
+      elseif acc.error then push(ss.muted, prefix .. '◌ claude: ' .. tostring(acc.error))
+      else push(ss.muted, prefix .. '◌ …') end
+    else
+      push(ss.muted, prefix .. (stale and '◌ ' or ''))
+      for j, r in ipairs(rows) do
+        if j > 1 then push(ss.border, ' · ') end
+        local used = math.floor(math.max(0, math.min(100, tonumber(r.pct) or 0)))
+        local shown = left_mode and (100 - used) or used
+        local col = stale and ss.muted or cu_color(used, r.severity)
+        local hot = not stale and (used >= danger_at or r.severity == 'critical')
+        push(col, ' ' .. tostring(r.label or '?') .. ' ' .. shown .. '%' .. cu_reset_text(r, now), hot, shown / 100)
+      end
+      if acc.error == 'login' then
+        push(ss.danger, ' (login)')
+      elseif stale then
+        -- auf 5 min gerundet: sonst ein render pro minute, solange der poller ausfällt
+        push(ss.muted, ' (' .. math.floor(data_age / 300) * 5 .. 'm)')
+      end
+    end
+  end
+  return runs
+end
+
+-- runs → format-items für die tab-leiste
+local function cu_format(runs)
+  local seg = {}
+  for _, r in ipairs(runs) do
+    seg[#seg + 1] = { Foreground = { Color = r.c } }
+    seg[#seg + 1] = { Attribute = { Intensity = r.b and 'Bold' or 'Normal' } }
+    seg[#seg + 1] = { Text = (r.p and cu_pie(r.p) or '') .. r.t }
+  end
+  return seg
+end
+
+-- bild-zustand im GLOBAL (überlebt config-reloads, gilt für alle fenster):
+--   cu_png = angezeigtes bild · cu_spec = zuletzt beauftragter inhalt · cu_slot = zuletzt beschriebener slot
+--   cu_job, cu_job_at = laufender render (ziel-png, start) · cu_failed = fallback auf die tab-leiste aktiv
+local function cu_render_reset()
+  local G = wezterm.GLOBAL
+  G.cu_png, G.cu_spec, G.cu_job = nil, nil, nil
+end
+
+-- zwei slots im wechsel: gleicher pfad → overrides unverändert → wezterm lädt nichts neu. der ältere
+-- slot wird erst vor seiner wiederverwendung gelöscht, das angezeigte bild bleibt also auf platte.
+local function cu_render(window, runs, now)
+  local G = wezterm.GLOBAL
+  if G.cu_job then
+    local f = io.open(G.cu_job, 'rb')
+    if f then
+      f:close()
+      G.cu_png, G.cu_job = G.cu_job, nil  -- apply_theme übernimmt den neuen pfad im nächsten tick
+    elseif now - G.cu_job_at >= 0 and now - G.cu_job_at < CU_RENDER_TIMEOUT then
+      return
+    else
+      local e = io.open(CU_BASE .. '.err', 'rb')
+      wezterm.log_error('claude-usage: kein bild nach ' .. CU_RENDER_TIMEOUT .. ' s, anzeige zurück in die tab-leiste'
+        .. (e and (': ' .. e:read('*a')) or ''))
+      if e then e:close() end
+      G.cu_failed = true
+      cu_render_reset()
+      return
+    end
+  end
+  local spec = wezterm.json_encode(runs)
+  if spec == G.cu_spec then return end
+  G.cu_spec = spec
+  G.cu_slot = G.cu_slot == 'a' and 'b' or 'a'
+  local out = CU_BASE .. '.' .. G.cu_slot .. '.png'
+  os.remove(out)
+  os.remove(CU_BASE .. '.err')
+  -- dpi nur hier, nicht im vergleich: sonst rendern fenster auf zwei monitoren gegeneinander an
+  local px = math.floor(CU_FONT_PT * window:get_dimensions().dpi / 72 + 0.5)
+  local f = assert(io.open(CU_BASE .. '.spec', 'wb'))
+  f:write(wezterm.json_encode { w = CU_CANVAS.w, h = CU_CANVAS.h, x = CU_CANVAS.x, font_px = px, lines = { runs } })
+  f:close()
+  G.cu_job, G.cu_job_at = out, now
+  wezterm.background_child_process {
+    'powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', CU_RENDER, '-Spec', CU_BASE .. '.spec', '-Out', out,
+  }
+end
+
+local cu_last_err = nil
+local function cu_status_items(window, now)
+  local ok, items = pcall(function()
+    local bottom = CLAUDE_USAGE.position == 'bottom' and not wezterm.GLOBAL.cu_failed
+    local runs = cu_runs(now)
+    if bottom and #runs > 0 then
+      cu_render(window, runs, now)
+      return {}
+    end
+    cu_render_reset()
+    return cu_format(runs)
+  end)
+  if not ok then
+    if items ~= cu_last_err then wezterm.log_error('claude-usage: ' .. tostring(items)) end
+    cu_last_err = items
+    wezterm.GLOBAL.cu_failed = true  -- nie unsichtbar kaputt: nächster tick zeigt die tab-leiste
+    return {}
+  end
+  if #items > 0 then
+    table.insert(items, 1, { Text = '  ' })
+    items[#items + 1] = { Attribute = { Intensity = 'Normal' } }
+    items[#items + 1] = { Foreground = { Color = ss.border } }
+    items[#items + 1] = { Text = '  │' }
+  end
+  return items
+end
+
+-- ═══════════════════════════════════════════════════════════════
 -- status-bar + attention-polling (clearing bei neuem output)
 -- ═══════════════════════════════════════════════════════════════
 wezterm.on('update-status', function(window, pane)
@@ -465,23 +747,14 @@ wezterm.on('update-status', function(window, pane)
 
   local time = wezterm.strftime('%H:%M')
   local date = wezterm.strftime('%a %d.%m')
-  local workspace = window:active_workspace()
-  local cwd = ''
-  local cwd_uri = pane:get_current_working_dir()
-  if cwd_uri then
-    local path = cwd_uri.file_path or tostring(cwd_uri)
-    cwd = path:gsub('/$', ''):match('([^/]+)$') or '~'
-  end
 
   window:set_left_status('')
-  window:set_right_status(wezterm.format {
-    { Foreground = { Color = ss.accent } },  { Text = '  ' .. workspace .. '  ' },
-    { Foreground = { Color = ss.border } },  { Text = '│' },
-    { Foreground = { Color = ss.fg } },      { Text = '  ~/' .. cwd .. '  ' },
-    { Foreground = { Color = ss.border } },  { Text = '│' },
+  local items = cu_status_items(window, os.time())
+  for _, t in ipairs {
     { Foreground = { Color = ss.muted } },   { Text = '  ' .. date .. '  ' },
     { Foreground = { Color = ss.primary } }, { Attribute = { Intensity = 'Bold' } }, { Text = time .. '  ' },
-  })
+  } do items[#items + 1] = t end
+  window:set_right_status(wezterm.format(items))
 end)
 
 -- ═══════════════════════════════════════════════════════════════
@@ -493,13 +766,39 @@ end)
 -- NICHT auflöst (execvpe nutzt den init-PATH, nicht den interop-PATH der session).
 local FILE_LINK_EDITOR = 'code'
 
+-- hyperlink-regeln: wezterm-defaults (urls in klammern, bare urls, mailto) + pfade in
+-- allen üblichen formen, jeweils mit optionalem :zeile[:spalte]. highlight + uri = capture 1
+-- (ohne das führende boundary-zeichen). bei überlappung gewinnt der längste treffer pro zelle.
 local hyperlinks = wezterm.default_hyperlink_rules()
 
-table.insert(hyperlinks, {
-  regex = [[([a-zA-Z0-9_/.~-]+\.(?:py|js|ts|tsx|jsx|lua|dart|go|rs|md|json|ya?ml|toml|sh|html|css|vue|svelte|rb|java|kt|php|sql|astro)):(\d+)(?::\d+)?]],
-  format = '$0',
-  highlight = 1,
-})
+-- boundary = alles, was kein pfadzeichen ist (zeilenanfang, leerzeichen, klammern, quotes, →, │, …)
+local PB = [[(?:^|[^\w.@+%/~\\$-])]]
+-- optionales :zeile oder :zeile:spalte
+local LC = [[(?::\d+(?::\d+)?)?]]
+-- endungen für nackte dateinamen ohne verzeichnis (README.md, x.py:12) — domains (.de/.com) bewusst nicht
+local EXT = 'py|js|mjs|cjs|ts|tsx|jsx|lua|dart|go|rs|md|json|ya?ml|toml|sh|bash|zsh|ps1|psm1|bat|cmd|iss'
+  .. '|html?|css|scss|vue|svelte|rb|java|kt|kts|php|sql|astro|txt|cfg|ini|conf|log|csv|xml|env|lock'
+  .. '|ipynb|c|h|cpp|hpp|cs|swift|zig|tf|hcl|nix|service|ics|vcf|pdf|png|jpe?g|gif|svg|webp'
+
+local PATH_RULES = {
+  -- absolut (≥2 segmente): /home/user/projekt/datei.py · /etc/hosts · /mnt/c/Users/x/
+  [[(/(?:[\w.@+%-]+/)+[\w.@+%-]*[\w@+%-]/?]] .. LC .. ')',
+  -- home-relativ: ~/.claude/rules/x.md · ~/projekte/
+  [[(~/(?:[\w.@+%-]+/)*[\w.@+%-]*[\w@+%-]/?]] .. LC .. ')',
+  -- punkt-relativ: ./install/install.ps1 · ../x
+  [[((?:\.\.?/)+(?:[\w.@+%-]+/)*[\w.@+%-]*[\w@+%-]/?]] .. LC .. ')',
+  -- relativ mit verzeichnis + endung: config/wezterm.lua:42 · .github/workflows/x.yml
+  [[(\.?[\w@+%-]+(?:/[\w.@+%-]+)*/[\w.@+%-]*\.[A-Za-z][A-Za-z0-9]{0,7}]] .. LC .. [[)\b]],
+  -- nackter dateiname mit bekannter endung: README.md · x.py.bak · .wezterm.lua
+  [[(\.?[\w@+%-]+(?:\.[\w@+%-]+)*\.(?:]] .. EXT .. [[)(?:\.[\w@+%-]+)*]] .. LC .. [[)\b]],
+  -- windows: C:\Users\x\.wezterm.lua · D:/data/x.csv
+  [=[([A-Za-z]:[\\/](?:[^\\/\s"'<>|*?:]+[\\/])*[^\\/\s"'<>|*?:]*[^\\/\s"'<>|*?:.]]=] .. LC .. ')',
+}
+for _, re in ipairs(PATH_RULES) do
+  table.insert(hyperlinks, { regex = PB .. re, format = '$1', highlight = 1 })
+end
+
+-- owner/repo#123 → github-issue
 table.insert(hyperlinks, {
   regex = [[\b([a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+)#(\d+)\b]],
   format = 'https://github.com/$1/issues/$2',
@@ -521,25 +820,52 @@ end
 -- `$0` = editor, `$1` = ziel. `~/` wird shell-seitig auf $HOME expandiert.
 local EDITOR_SH = 't="$1"; case "$t" in "~/"*) t="$HOME/${t#"~/"}";; esac; exec "$0" -g "$t"'
 
+-- file://-uris (z.b. OSC-8-links aus TUIs) → pfad. percent-decoding, wsl-host-formen.
+local function file_uri_to_path(uri)
+  local rest = uri:gsub('^file://', '')
+  rest = rest:gsub('%%(%x%x)', function(h) return string.char(tonumber(h, 16)) end)
+  -- file://wsl.localhost/Ubuntu/home/x · file://wsl$/Ubuntu/home/x → /home/x
+  local wslpath = rest:match('^wsl[%.%$][^/]*/[^/]+(/.*)$')
+  if wslpath then return wslpath end
+  -- file:///C:/x · file://C:/x → C:/x
+  local win = rest:match('^/?(%a:[/\\].*)$')
+  if win then return win end
+  -- file:///home/x · file://localhost/home/x → /home/x
+  return (rest:gsub('^localhost', ''))
+end
+
+local function open_in_editor(target)
+  wezterm.background_child_process {
+    'wsl.exe', '-d', '{{WSL_DISTRO}}', '-e', 'sh', '-c', EDITOR_SH, FILE_LINK_EDITOR, target,
+  }
+end
+
 wezterm.on('open-uri', function(window, pane, uri)
-  -- urls + mailto → default-browser via windows-shell. rundll32 statt `cmd /c start`:
-  -- kein konsolen-flackern, kein '&'-parsing durch cmd.
-  if uri:match('^%a[%w+.-]*://') or uri:match('^mailto:') then
+  if uri:match('^file://') then
+    -- file:// → wie pfad behandeln (editor)
+    uri = file_uri_to_path(uri)
+  elseif uri:match('^%a[%w+.-]*://') or uri:match('^mailto:') then
+    -- urls + mailto → default-browser via windows-shell. rundll32 statt `cmd /c start`:
+    -- kein konsolen-flackern, kein '&'-parsing durch cmd.
     wezterm.background_child_process { 'rundll32.exe', 'url.dll,FileProtocolHandler', uri }
     return false
   end
 
-  -- file:line → editor. relative pfade gegen das pane-cwd auflösen.
-  local file, line = uri:match('^(.-):(%d+)')
-  if not file then file = uri end
-  if file:sub(1, 1) ~= '/' and file:sub(1, 2) ~= '~/' then
-    local cwd = pane_linux_cwd(pane)
-    if cwd then file = cwd .. '/' .. file end
+  -- pfad[:zeile[:spalte]] → editor. satzzeichen am ende abschneiden (defensiv).
+  local target = uri:gsub('[.,;:]+$', '')
+  if not target:match('^%a:[/\\]') then
+    -- linux-pfad: relative pfade gegen das pane-cwd auflösen (`~/` expandiert die shell)
+    local file, suffix = target:match('^(.-)(:%d+:?%d*)$')
+    file = file or target
+    suffix = suffix or ''
+    if file:sub(1, 1) ~= '/' and file:sub(1, 2) ~= '~/' then
+      local cwd = pane_linux_cwd(pane)
+      if cwd then file = cwd .. '/' .. file end
+    end
+    target = file .. suffix
   end
-  local target = line and (file .. ':' .. line) or file
-  wezterm.background_child_process {
-    'wsl.exe', '-d', '{{WSL_DISTRO}}', '-e', 'sh', '-c', EDITOR_SH, FILE_LINK_EDITOR, target,
-  }
+  -- windows-pfade (C:\…) gehen unverändert an den editor (interop reicht sie 1:1 durch)
+  open_in_editor(target)
   return false
 end)
 
@@ -566,7 +892,11 @@ config.visual_bell = {
 -- ═══════════════════════════════════════════════════════════════
 -- verhalten
 -- ═══════════════════════════════════════════════════════════════
-config.window_close_confirmation = 'NeverPrompt'
+-- schließen bestätigen: fenster-X / Alt+F4 / Strg+Umschalt+W / Strg+Umschalt+X fragen
+-- immer nach (overlay: y = schließen, n/Esc = abbrechen) — auch wenn nur eine shell läuft.
+-- leere skip-liste: wezterm würde bash/zsh/pwsh sonst ohne rückfrage killen.
+config.window_close_confirmation = 'AlwaysPrompt'
+config.skip_close_confirmation_for_processes_named = {}
 config.alternate_buffer_wheel_scroll_speed = 1
 config.initial_cols = 140
 config.initial_rows = 40
@@ -692,6 +1022,13 @@ local smart_paste = wezterm.action_callback(function(window, pane)
   end
 end)
 
+-- F5: config neu laden und nutzungs-bild neu rendern (holt es auch nach einem fallback zurück)
+local reload_config = wezterm.action_callback(function(window, pane)
+  wezterm.GLOBAL.cu_failed = nil
+  wezterm.GLOBAL.cu_spec = nil
+  window:perform_action(act.ReloadConfiguration, pane)
+end)
+
 config.keys = {
   { key = 'c', mods = 'CTRL',       action = smart_ctrl_c },
   { key = 'v', mods = 'CTRL',       action = act.PasteFrom 'Clipboard' },
@@ -709,7 +1046,7 @@ config.keys = {
   { key = 'PageDown', mods = 'CTRL|SHIFT', action = act.MoveTabRelative(1) },
   { key = 'F6',                            action = detach_tab },
 
-  { key = 'F5',                      action = act.ReloadConfiguration },
+  { key = 'F5',                      action = reload_config },
 
   -- theme: F10 toggle light↔dark (override) · Shift+F10 reset auf system-autodetect
   { key = 'F10',                     action = toggle_theme },
@@ -719,8 +1056,8 @@ config.keys = {
   { key = '=', mods = 'CTRL',       action = act.IncreaseFontSize },
   { key = '0', mods = 'CTRL',       action = act.ResetFontSize },
 
-  { key = 'w', mods = 'CTRL|SHIFT', action = act.CloseCurrentTab { confirm = false } },
-  { key = 'x', mods = 'CTRL|SHIFT', action = act.CloseCurrentPane { confirm = false } },
+  { key = 'w', mods = 'CTRL|SHIFT', action = act.CloseCurrentTab { confirm = true } },
+  { key = 'x', mods = 'CTRL|SHIFT', action = act.CloseCurrentPane { confirm = true } },
 
   { key = 'd', mods = 'CTRL|SHIFT', action = act.SplitHorizontal { domain = 'CurrentPaneDomain' } },
   { key = 'r', mods = 'CTRL|SHIFT', action = act.SplitVertical { domain = 'CurrentPaneDomain' } },
@@ -746,26 +1083,55 @@ config.keys = {
   { key = 'Tab',       mods = 'CTRL',       action = act.DisableDefaultAssignment },
 }
 
+-- ═══════════════════════════════════════════════════════════════
+-- maus-bindings
+-- TUIs mit maus-capture (claude code ≥2.1.3xx, vim, htop, …) bekommen von wezterm sonst
+-- ALLE maus-events; bindings greifen dort nur mit Shift. die `mouse_reporting = true`-
+-- varianten holen linksklick (selektion + link öffnen), rechtsklick (paste) und
+-- Strg+mausrad (zoom) auch in solchen TUIs zurück ans terminal. mausrad ohne modifier
+-- bleibt bei der app (claude code scrollt damit sein eigenes transkript).
+-- ═══════════════════════════════════════════════════════════════
+local function terminal_owned_mouse()
+  return {
+    -- rechtsklick (einfach): paste aus zwischenablage
+    { event = { Down = { streak = 1, button = 'Right' } }, mods = 'NONE', action = act.PasteFrom 'Clipboard' },
+    -- doppel-rechtsklick (auf logo-bereich unten rechts): about-overlay
+    -- hintergrundbild-layer ist nicht anklickbar in wezterm — doppel-rc ist der nächstbeste weg
+    { event = { Down = { streak = 2, button = 'Right' } }, mods = 'NONE', action = about_overlay },
+    -- linksklick: selektion starten (zelle / wort / zeile) · drag erweitert sie
+    { event = { Down = { streak = 1, button = 'Left' } }, mods = 'NONE', action = act.SelectTextAtMouseCursor 'Cell' },
+    { event = { Down = { streak = 2, button = 'Left' } }, mods = 'NONE', action = act.SelectTextAtMouseCursor 'Word' },
+    { event = { Down = { streak = 3, button = 'Left' } }, mods = 'NONE', action = act.SelectTextAtMouseCursor 'Line' },
+    { event = { Drag = { streak = 1, button = 'Left' } }, mods = 'NONE', action = act.ExtendSelectionToMouseCursor 'Cell' },
+    { event = { Drag = { streak = 2, button = 'Left' } }, mods = 'NONE', action = act.ExtendSelectionToMouseCursor 'Word' },
+    { event = { Drag = { streak = 3, button = 'Left' } }, mods = 'NONE', action = act.ExtendSelectionToMouseCursor 'Line' },
+    -- loslassen ohne drag: link unter dem cursor öffnen · mit drag: selektion → clipboard
+    { event = { Up = { streak = 1, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelectionOrOpenLinkAtMouseCursor 'Clipboard' },
+    { event = { Up = { streak = 2, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
+    { event = { Up = { streak = 3, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
+    -- strg+klick: link öffnen (auch bei bestehender selektion) · Down = Nop, damit keine selektion startet
+    { event = { Down = { streak = 1, button = 'Left' } }, mods = 'CTRL', action = act.Nop },
+    { event = { Up = { streak = 1, button = 'Left' } }, mods = 'CTRL', action = act.OpenLinkAtMouseCursor },
+    -- strg + mausrad → zoom
+    { event = { Down = { streak = 1, button = { WheelUp = 1 } } },   mods = 'CTRL', action = act.IncreaseFontSize },
+    { event = { Down = { streak = 1, button = { WheelDown = 1 } } }, mods = 'CTRL', action = act.DecreaseFontSize },
+  }
+end
+
 config.mouse_bindings = {
-  { event = { Down = { streak = 1, button = 'Right' } }, mods = 'NONE', action = act.PasteFrom 'Clipboard' },
-  -- doppel-rechtsklick: about-overlay (hintergrundbild nicht anklickbar in wezterm)
-  { event = { Down = { streak = 2, button = 'Right' } }, mods = 'NONE', action = about_overlay },
-  -- linksklick ohne drag: link unter dem cursor öffnen · mit drag: selektion → clipboard
-  { event = { Up = { streak = 1, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelectionOrOpenLinkAtMouseCursor 'Clipboard' },
-  { event = { Up = { streak = 2, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
-  { event = { Up = { streak = 3, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
-  -- strg+klick: link öffnen (auch bei bestehender selektion)
-  -- strg+shift+klick: dito in TUIs mit maus-capture (vim, htop — shift umgeht mouse-reporting)
-  { event = { Up = { streak = 1, button = 'Left' } }, mods = 'CTRL', action = act.OpenLinkAtMouseCursor },
+  -- strg+shift+klick: link öffnen — shift umgeht mouse-reporting, greift also in jeder TUI
   { event = { Up = { streak = 1, button = 'Left' } }, mods = 'CTRL|SHIFT', action = act.OpenLinkAtMouseCursor },
-
-  -- ctrl + wheel → zoom
-  { event = { Down = { streak = 1, button = { WheelUp = 1 } } }, mods = 'CTRL', action = act.IncreaseFontSize },
-  { event = { Down = { streak = 1, button = { WheelDown = 1 } } }, mods = 'CTRL', action = act.DecreaseFontSize },
-
-  -- shift + wheel → page scroll
-  { event = { Down = { streak = 1, button = { WheelUp = 1 } } }, mods = 'SHIFT', action = act.ScrollByPage(-1) },
+  -- SHIFT + mausrad → seitenweise scrollen (shift = bypass, wirkt auch in TUIs)
+  { event = { Down = { streak = 1, button = { WheelUp = 1 } } },   mods = 'SHIFT', action = act.ScrollByPage(-1) },
   { event = { Down = { streak = 1, button = { WheelDown = 1 } } }, mods = 'SHIFT', action = act.ScrollByPage(1) },
 }
+-- jede terminal-eigene binding zweimal registrieren: normal + unter mouse-reporting
+for _, b in ipairs(terminal_owned_mouse()) do
+  table.insert(config.mouse_bindings, b)
+  local r = {}
+  for k, v in pairs(b) do r[k] = v end
+  r.mouse_reporting = true
+  table.insert(config.mouse_bindings, r)
+end
 
 return config

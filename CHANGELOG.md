@@ -2,6 +2,22 @@
 
 Alle relevanten Änderungen werden hier dokumentiert. Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
+## [0.4.0] — 2026-10-28
+
+### Fixed
+- **Links in TUIs mit Maus-Capture** — Claude Code (ab 2.1.3xx), vim, htop & Co. fordern alle Maus-Events an; WezTerm wandte eigene Bindings dann nur noch mit `Shift` an, Links und Pfade im Claude-Tab waren nicht klickbar und Text nicht per Maus markierbar. Linksklick (Selektion + Link öffnen), Rechtsklick (Paste) und `Strg+Mausrad` (Zoom) sind jetzt zusätzlich mit `mouse_reporting = true` registriert und bleiben beim Terminal. Mausrad ohne Modifier geht weiter an die App (Claude Code scrollt damit sein Transkript)
+
+- **Installer unter Windows PowerShell 5.1** — `install.ps1` und `uninstall.ps1` enthielten UTF-8 ohne BOM; PowerShell 5.1 liest das als ANSI, und das `—` wurde zum Anführungszeichen. Beide Scripts brachen schon beim Parsen ab, also auch `TerminalStack-Setup.exe` und `install.bat`. Die Dateien tragen jetzt ein BOM
+
+### Changed
+- **Statusleiste entschlackt** — Workspace und CWD sind raus, rechts stehen nur noch Datum und Uhrzeit
+
+### Added
+- **Claude-Nutzung am unteren Fensterrand** — 5h-Fenster, Wochen-Kontingent und Modell-Fenster des Claude-Abos (`◑ 5h 42% ↻14:30 · ◔ 7d 18% · ◔ Fable 31%`) unten links neben dem Logo, Farbe nach Restkontingent (grün → amber → rot, ab 90 % fett), Kreis als Füllstand, mehrere Accounts nebeneinander (`CLAUDE_USAGE`-Block). WezTerm kann dort keinen Text zeichnen, `install/claude-usage-render.ps1` rendert deshalb bei Inhaltsänderungen ein transparentes PNG als Hintergrund-Layer; `position = 'top'` zeigt die Nutzung stattdessen in der Tab-Leiste, dorthin fällt die Anzeige auch automatisch zurück, wenn das Bild ausbleibt. Poller `install/claude-usage.sh` läuft alle 5 min in WSL, der OAuth-Token bleibt dort (curl via stdin, kein Refresh); braucht `jq` + `curl`. Installer kopiert beide Helper nach `%USERPROFILE%`, Uninstaller räumt Helper, Cache und Bilder weg
+- **Pfade ohne Zeilennummer klickbar** — absolut (`/home/…`), `~/…`, `./…`, relativ mit Verzeichnis (`config/wezterm.lua`), nackte Dateinamen mit bekannter Endung (`README.md`) und Windows-Pfade (`C:\…`), jeweils mit optionalem `:zeile[:spalte]`
+- **`file://`-URIs** (OSC-8-Links aus TUIs) landen im Editor statt im Browser — inkl. `file://wsl.localhost/…` und `file:///C:/…`
+- **Schließen-Bestätigung** — Fenster-X, `Alt+F4`, `Strg+Umschalt+W` und `Strg+Umschalt+X` fragen nach (`y`/`n`), auch wenn nur eine Shell läuft (`window_close_confirmation = 'AlwaysPrompt'`, leere Skip-Liste)
+
 ## [0.3.0] — 2026-09-23
 
 ### Fixed

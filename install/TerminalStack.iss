@@ -7,7 +7,7 @@
 ; Anforderungen: Inno Setup 6.3+  (https://jrsoftware.org/isinfo.php)
 
 #define AppName    "TerminalStack"
-#define AppVersion "0.3.0"
+#define AppVersion "0.4.0"
 #define AppPublisher "Stackschmiede"
 #define AppURL     "https://stackschmiede.de"
 #define AppExeName "wezterm.exe"
@@ -61,6 +61,8 @@ Source: "..\config\wezterm.lua";      DestDir: "{tmp}\ts-src";  Flags: ignorever
 Source: "..\config\assets\*";         DestDir: "{tmp}\ts-src\assets"; Flags: ignoreversion recursesubdirs
 Source: "install.ps1";                DestDir: "{tmp}\ts-src";  Flags: ignoreversion
 Source: "paste-image.ps1";            DestDir: "{tmp}\ts-src";  Flags: ignoreversion
+Source: "claude-usage.sh";            DestDir: "{tmp}\ts-src";  Flags: ignoreversion
+Source: "claude-usage-render.ps1";    DestDir: "{tmp}\ts-src";  Flags: ignoreversion
 
 [Code]
 var

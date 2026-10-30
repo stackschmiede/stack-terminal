@@ -26,13 +26,16 @@ Attention-Marker bleiben stehen bis du *im Tab etwas tippst* — reines Durchtab
 ### Brand-Design
 - Anthrazit-BG (`#0F0F10`), Amber als Primary (`#D4A574`), Sage als Accent (`#6B8E7F`)
 - Wordmark-Logo dezent unten rechts im Hintergrund
-- Status-Bar mit Workspace, CWD, Datum, Uhrzeit
+- Status-Bar mit Datum und Uhrzeit, Claude-Nutzung unten links neben dem Logo
 - Tab-Prefix-Icons je nach Prozess (`◆` Claude, `→` SSH, `▸` Python/Node, `✎` Vim)
 
 ### Produktivität
 - **Tab-Rename** — `F2` oder `Strg+Umschalt+E`
 - **Tab-Cycling** — `Strg+Leertaste` (vorwärts), `` Strg+` `` (rückwärts)
-- **Klickbare Links** — Klick oder `Strg+Klick`: URLs → Default-Browser, `path/to/file.py:42` → Editor an der Zeile (`FILE_LINK_EDITOR`, Default `code`; relative Pfade werden gegen das Pane-CWD aufgelöst)
+- **Klickbare Links & Pfade** — Klick oder `Strg+Klick`: URLs → Default-Browser, Pfade → Editor (`FILE_LINK_EDITOR`, Default `code`). Erkannt werden `path/to/file.py:42`, `/abs/pfad`, `~/pfad`, `./pfad`, `README.md` und `C:\…`, jeweils mit optionalem `:zeile[:spalte]`; relative Pfade werden gegen das Pane-CWD aufgelöst
+- **Maus auch in TUIs** — Claude Code, vim, htop & Co. fordern die Maus an; Linksklick (Selektion, Links), Rechtsklick (Paste) und `Strg+Mausrad` bleiben trotzdem beim Terminal. Das Mausrad ohne Modifier geht weiter an die App
+- **Schließen mit Rückfrage** — Fenster-X, `Alt+F4`, `Strg+Umschalt+W`, `Strg+Umschalt+X` fragen nach (`y` schließt, `n`/`Esc` bricht ab), auch wenn nur eine Shell läuft
+- **Claude-Nutzung am unteren Fensterrand** — 5h-Fenster, Wochen-Kontingent und Modell-Fenster des Claude-Abos (`◑ 5h 42% ↻14:30 · ◔ 7d 18% · ◔ Fable 31%`) unten links neben dem Logo: Farbe nach Restkontingent (grün → amber → rot, ab 90 % fett), Kreis als Füllstand, mehrere Accounts nebeneinander. Wahlweise in der Tab-Leiste (`position = 'top'`). Der Poller läuft in WSL, der OAuth-Token bleibt dort (braucht `jq` + `curl` in WSL)
 - **Smart-Paste** — `Strg+Umschalt+V` erkennt Bilder in der Zwischenablage, speichert nach `%TEMP%`, fügt WSL-Pfad ein. Läuft gerade `claude` im Tab → automatisches `@`-Prefix für die Claude Code CLI.
 - **About-Overlay** — `F1` oder Doppel-Rechtsklick → Brand-Info + Link zu stackschmiede.de
 - **Config-Reload** — `F5` (manuell) oder automatisch beim Speichern
@@ -100,14 +103,14 @@ Doppelklick auf `install\uninstall.ps1` (oder Rechtsklick → „Mit PowerShell 
 | `F2` / `Strg+Umschalt+E` | Tab umbenennen |
 | `Strg+Umschalt+Bild↑` / `↓` | Tab verschieben |
 | `F6` | Tab in eigenes Fenster detachen |
-| `Strg+Umschalt+W` | Tab schließen |
+| `Strg+Umschalt+W` | Tab schließen (mit Rückfrage) |
 
 ### Panes
 | Shortcut | Aktion |
 |---|---|
 | `Strg+Umschalt+D` / `+R` | Pane horizontal / vertikal splitten |
 | `Strg+Umschalt+Alt+Pfeile` | Pane wechseln |
-| `Strg+Umschalt+X` | Pane schließen |
+| `Strg+Umschalt+X` | Pane schließen (mit Rückfrage) |
 
 ### Clipboard & Paste
 | Shortcut | Aktion |
@@ -133,9 +136,9 @@ Doppelklick auf `install\uninstall.ps1` (oder Rechtsklick → „Mit PowerShell 
 |---|---|
 | `Shift+Mausrad` / `Shift+Bild↑↓` | Seitenweise scrollen |
 | `Strg+Mausrad` / `Strg+=/−/0` | Font-Zoom |
-| Klick / `Strg+Klick` auf URL | im Default-Browser öffnen |
-| Klick / `Strg+Klick` auf `file:line` | im Editor öffnen (`FILE_LINK_EDITOR`) |
-| `Strg+Umschalt+Klick` | Link öffnen in TUIs mit Maus-Capture (vim, htop) |
+| Klick / `Strg+Klick` auf URL | im Default-Browser öffnen (auch in Claude Code, vim, htop) |
+| Klick / `Strg+Klick` auf Pfad / `file:line` | im Editor öffnen (`FILE_LINK_EDITOR`) |
+| `Strg+Umschalt+Klick` | Link öffnen — Fallback, Shift umgeht jedes Maus-Capture |
 
 ---
 
@@ -148,7 +151,9 @@ Typische Anpassungen:
 - Farben in der `ss`-Tabelle oben tauschen
 - Font-Size / Line-Height anpassen
 - Busy-Schwelle via `BUSY_WINDOW` (Default: 3s)
-- Editor für `file:line`-Links via `FILE_LINK_EDITOR` (`code`, `antigravity-ide`, `cursor`, …)
+- Editor für Pfad-Links via `FILE_LINK_EDITOR` (`code`, `antigravity-ide`, `cursor`, …)
+- Claude-Nutzung: `CLAUDE_USAGE`-Block (Position, Accounts, Intervall, Rows, Reset-Anzeige, `enabled = false`)
+- Schließen-Rückfrage aus: `window_close_confirmation = 'NeverPrompt'` + `confirm = false` bei `CloseCurrentTab`/`CloseCurrentPane`
 
 Details: [`docs/customization.md`](docs/customization.md).
 
@@ -167,6 +172,8 @@ stack-terminal/
 │   ├── install.bat           — Doppelklick-Wrapper
 │   ├── uninstall.ps1         — Restore / Cleanup
 │   ├── paste-image.ps1       — Smart-Paste Helper
+│   ├── claude-usage.sh       — Claude-Usage-Poller (läuft in WSL)
+│   ├── claude-usage-render.ps1 — Nutzung als Bild für den unteren Fensterrand
 │   └── wizard-*.png          — Branded Wizard-Bilder
 ├── .github/
 │   └── workflows/release.yml — Auto-Build bei Git-Tag

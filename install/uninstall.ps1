@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   TerminalStack — Uninstaller / Restore
 .DESCRIPTION
@@ -55,6 +55,18 @@ if (Test-Path $PasteHelperDst) {
   Write-Step "Loesche $PasteHelperDst"
   Remove-Item $PasteHelperDst -Force
   Write-OK "Paste-Helper entfernt."
+}
+
+foreach ($name in @(
+  '.wezterm-claude-usage.sh', '.wezterm-claude-usage.json', '.wezterm-claude-usage-render.ps1',
+  '.wezterm-claude-usage.a.png', '.wezterm-claude-usage.b.png', '.wezterm-claude-usage.spec', '.wezterm-claude-usage.err'
+)) {
+  $p = Join-Path $env:USERPROFILE $name
+  if (Test-Path $p) {
+    Write-Step "Loesche $p"
+    Remove-Item $p -Force
+    Write-OK "$name entfernt."
+  }
 }
 
 if (-not $KeepBackups) {

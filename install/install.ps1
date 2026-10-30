@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   TerminalStack — WezTerm Config Installer (Stackschmiede)
 
@@ -180,6 +180,26 @@ if (Test-Path $PasteHelperSrc) {
   Write-OK "Smart-Paste-Helper installiert."
 }
 
+# ─── 6c. Claude-Usage-Poller (Abo-Nutzung in der Statusleiste) ──────────
+$UsageSrc = Join-Path $ScriptRoot 'claude-usage.sh'
+$UsageDst = Join-Path $env:USERPROFILE '.wezterm-claude-usage.sh'
+if (Test-Path $UsageSrc) {
+  Write-Step "Installiere Claude-Usage-Poller nach $UsageDst"
+  # LF + UTF-8 ohne BOM erzwingen: bash in WSL stolpert ueber CRLF (git autocrlf) und BOM
+  $sh = (Get-Content -Raw -Encoding UTF8 $UsageSrc) -replace "`r`n", "`n"
+  [System.IO.File]::WriteAllText($UsageDst, $sh, (New-Object System.Text.UTF8Encoding $false))
+  Write-OK "Claude-Usage-Poller installiert (braucht jq + curl in WSL)."
+}
+
+# ─── 6d. Claude-Usage-Renderer (Anzeige am unteren Fensterrand) ─────────
+$RenderSrc = Join-Path $ScriptRoot 'claude-usage-render.ps1'
+$RenderDst = Join-Path $env:USERPROFILE '.wezterm-claude-usage-render.ps1'
+if (Test-Path $RenderSrc) {
+  Write-Step "Installiere Claude-Usage-Renderer nach $RenderDst"
+  Copy-Item $RenderSrc $RenderDst -Force
+  Write-OK "Claude-Usage-Renderer installiert."
+}
+
 # ─── 7. Done ─────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "  $([char]0x2605) Installation abgeschlossen." -ForegroundColor Green
@@ -188,7 +208,8 @@ Write-Muted "Naechste Schritte:"
 Write-Muted "  1. WezTerm starten (oder neu starten, falls offen)"
 Write-Muted "  2. Tab-Rename: F2 oder Strg+Umschalt+E"
 Write-Muted "  3. Shift+Mausrad: seitenweise scrollen"
-Write-Muted "  4. Bei Problemen: $ConfigDst.bak.$timestamp wiederherstellen"
+Write-Muted "  4. Claude-Nutzung am unteren Fensterrand: einmalig in WSL  sudo apt install jq curl"
+Write-Muted "  5. Bei Problemen: $ConfigDst.bak.$timestamp wiederherstellen"
 Write-Host ""
 Write-Host "  stackschmiede.de" -ForegroundColor DarkYellow
 Write-Host ""
