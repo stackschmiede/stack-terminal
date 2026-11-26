@@ -2,7 +2,7 @@
 
 Alle relevanten Änderungen werden hier dokumentiert. Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
-## [Unreleased]
+## [0.5.0] — 2026-11-26
 
 ### Changed
 - **Links nur noch per `Strg+Klick`** — der einfache Klick öffnet nicht mehr, er markiert nur; Doppelklick kopiert das Wort wie bisher. Markieren, Kopieren oder Fokussieren startet so nie versehentlich ein Programm. `Strg+Umschalt+Klick` bleibt Fallback
