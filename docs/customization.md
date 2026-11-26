@@ -89,13 +89,19 @@ Die `new_tab_wsl`-Callback-Funktion referenziert ebenfalls den Distro-Namen — 
 
 ## Links & Editor
 
-Klick (ohne Drag) oder `Strg+Klick` öffnet den Link unter dem Cursor. URLs und `mailto:` gehen an den Windows-Default-Browser (`rundll32 url.dll,FileProtocolHandler`), Pfade an den Editor:
+`Strg+Klick` öffnet den Link unter dem Cursor. Einfacher Klick und Ziehen markieren, Doppelklick kopiert das Wort (bei Pfaden meist der ganze Pfad) — beides öffnet nichts. Wohin der Link geht:
+
+| Ziel | öffnet in |
+|---|---|
+| URLs, `mailto:` | Windows-Default-Browser / Mail-Programm (`rundll32 url.dll,FileProtocolHandler`) |
+| Dokumente + Medien (`.pdf`, Office, Bilder, Audio/Video, `.zip` — Liste `EXTERNAL_EXT`) | Windows-Standardprogramm, wie Doppelklick im Explorer; Linux-Pfade per `wslpath -w` als `\\wsl.localhost\…` |
+| übrige Pfade (Code, Text, Ordner) | Editor mit Zeile/Spalte |
 
 ```lua
-local FILE_LINK_EDITOR = 'code'   -- 'antigravity-ide', 'cursor', …
+local FILE_LINK_EDITOR = 'code'   -- 'antigravity-ide', 'cursor', … · '' = immer Standardprogramm
 ```
 
-Das Kommando muss im WSL-PATH auffindbar sein — die Windows-Interop-Pfade reichen (`which code` in WSL prüfen).
+Das Kommando muss im WSL-PATH auffindbar sein — die Windows-Interop-Pfade reichen (`which code` in WSL prüfen). Findet die Shell es nicht (deinstalliert, Tippfehler), geht der Pfad ebenfalls an das Windows-Standardprogramm, Ordner an den Explorer; Zeile/Spalte fallen dann weg.
 
 Erkannte Pfad-Formen (alle mit optionalem `:zeile` oder `:zeile:spalte`):
 
@@ -109,17 +115,17 @@ Erkannte Pfad-Formen (alle mit optionalem `:zeile` oder `:zeile:spalte`):
 | Windows | `C:\Users\x\.wezterm.lua`, `D:/data/x.csv` |
 | `file://`-URI (OSC 8 aus TUIs) | `file:///home/x`, `file://wsl.localhost/Ubuntu/home/x`, `file:///C:/x` |
 
-Relative Pfade werden gegen das CWD des Panes aufgelöst (braucht OSC 7 aus der Shell), `~/` gegen `$HOME`. Weitere Endungen für nackte Dateinamen: `EXT`-String in der Config erweitern. Falsch-positive Treffer (z. B. `node.js` in Prosa) sind harmlos — der Editor öffnet dann eine leere Datei.
+Relative Pfade werden gegen das CWD des Panes aufgelöst (braucht OSC 7 aus der Shell), `~/` gegen `$HOME`. Weitere Endungen für nackte Dateinamen: `EXT`-String in der Config erweitern, weitere Endungen fürs Standardprogramm: `EXTERNAL_EXT`. Falsch-positive Treffer (z. B. `node.js` in Prosa) sind harmlos — der Editor öffnet dann eine leere Datei, ohne Editor versucht Windows, die nicht vorhandene Datei zu öffnen.
 
 ### Maus in TUIs mit Maus-Capture
 
-Claude Code (ab 2.1.3xx), vim, htop, tmux & Co. schalten Mouse-Reporting ein; WezTerm reicht dann alle Maus-Events an die App durch und wendet eigene Bindings nur noch mit `Shift` an. Die Config registriert deshalb Linksklick (Selektion + Link öffnen), Rechtsklick (Paste) und `Strg+Mausrad` (Zoom) zusätzlich mit `mouse_reporting = true` — sie bleiben so in jeder TUI beim Terminal. Das Mausrad ohne Modifier geht weiter an die App (Claude Code scrollt damit sein Transkript, vim seinen Buffer).
+Claude Code (ab 2.1.3xx), vim, htop, tmux & Co. schalten Mouse-Reporting ein; WezTerm reicht dann alle Maus-Events an die App durch und wendet eigene Bindings nur noch mit `Shift` an. Die Config registriert deshalb Linksklick (Selektion), `Strg+Klick` (Links öffnen), Rechtsklick (Paste) und `Strg+Mausrad` (Zoom) zusätzlich mit `mouse_reporting = true` — sie bleiben so in jeder TUI beim Terminal. Das Mausrad ohne Modifier geht weiter an die App (Claude Code scrollt damit sein Transkript, vim seinen Buffer).
 
 Kehrseite: eine TUI, die eigene Klick-Interaktion anbietet (Cursor per Klick setzen, Optionen anklicken), bekommt den Linksklick nicht mehr. Wer das lieber hätte, löscht in `config.mouse_bindings` die Schleife, die die `mouse_reporting`-Varianten einträgt — dann gilt wieder: `Strg+Umschalt+Klick` für Links in TUIs.
 
 Alternative auf Claude-Code-Seite: `export CLAUDE_CODE_DISABLE_MOUSE=1` (kein Mouse-Reporting, WezTerm-Standardverhalten) oder `CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1` (nur Scrollen) in der Shell-RC.
 
-Plain-Klick auf Links wieder abschalten: in `terminal_owned_mouse()` bei `Up { streak = 1 }` / `mods = 'NONE'` die Action auf `act.CompleteSelection 'Clipboard'` setzen — dann öffnet nur noch `Strg+Klick`.
+Links lieber per einfachem Klick öffnen: in `terminal_owned_mouse()` bei `Up { streak = 1 }` / `mods = 'NONE'` die Action auf `act.CompleteSelectionOrOpenLinkAtMouseCursor 'Clipboard'` setzen. Kehrseite: jeder Klick zum Markieren oder Fokussieren, der auf einem Pfad landet, startet dann ein Programm.
 
 ## Schließen-Bestätigung
 

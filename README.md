@@ -17,7 +17,7 @@ Jeder Tab hat einen von drei Zuständen, die auf einen Blick erkennbar sind:
 | State | Farbe | Bedeutung |
 |-------|-------|-----------|
 | **Idle** | dunkel / muted | nichts passiert |
-| **Busy** | Amber-soft auf Surface | Prozess schreibt gerade Output (letzte 3s) |
+| **Busy** | Amber-soft auf Surface | Prozess schreibt gerade Output (letzte 3s) — oder Claude Code wartet auf Hintergrund-Shells (`· 1 shell ·` in der Fußzeile) bzw. -Agenten (Liste `● main` / `◯ <agent>` darunter) |
 | **Attention** | Amber-bold | Prozess hat Bell gesendet — wartet auf dich |
 | **Active** | Amber-bold | aktuell fokussierter Tab |
 
@@ -32,7 +32,7 @@ Attention-Marker bleiben stehen bis du *im Tab etwas tippst* — reines Durchtab
 ### Produktivität
 - **Tab-Rename** — `F2` oder `Strg+Umschalt+E`
 - **Tab-Cycling** — `Strg+Leertaste` (vorwärts), `` Strg+` `` (rückwärts)
-- **Klickbare Links & Pfade** — Klick oder `Strg+Klick`: URLs → Default-Browser, Pfade → Editor (`FILE_LINK_EDITOR`, Default `code`). Erkannt werden `path/to/file.py:42`, `/abs/pfad`, `~/pfad`, `./pfad`, `README.md` und `C:\…`, jeweils mit optionalem `:zeile[:spalte]`; relative Pfade werden gegen das Pane-CWD aufgelöst
+- **Klickbare Links & Pfade** — `Strg+Klick` (Doppelklick kopiert nur): URLs → Default-Browser, PDFs, Office-Dateien, Bilder und Medien → Windows-Standardprogramm, übrige Pfade → Editor (`FILE_LINK_EDITOR`, Default `code`; ohne Editor ebenfalls Standardprogramm). Erkannt werden `path/to/file.py:42`, `/abs/pfad`, `~/pfad`, `./pfad`, `README.md` und `C:\…`, jeweils mit optionalem `:zeile[:spalte]`; relative Pfade werden gegen das Pane-CWD aufgelöst
 - **Maus auch in TUIs** — Claude Code, vim, htop & Co. fordern die Maus an; Linksklick (Selektion, Links), Rechtsklick (Paste) und `Strg+Mausrad` bleiben trotzdem beim Terminal. Das Mausrad ohne Modifier geht weiter an die App
 - **Schließen mit Rückfrage** — Fenster-X, `Alt+F4`, `Strg+Umschalt+W`, `Strg+Umschalt+X` fragen nach (`y` schließt, `n`/`Esc` bricht ab), auch wenn nur eine Shell läuft
 - **Claude-Nutzung am unteren Fensterrand** — 5h-Fenster, Wochen-Kontingent und Modell-Fenster des Claude-Abos (`◑ 5h 42% ↻14:30 · ◔ 7d 18% · ◔ Fable 31%`) unten links neben dem Logo: Farbe nach Restkontingent (grün → amber → rot, ab 90 % fett), Kreis als Füllstand, mehrere Accounts nebeneinander. Wahlweise in der Tab-Leiste (`position = 'top'`). Der Poller läuft in WSL, der OAuth-Token bleibt dort (braucht `jq` + `curl` in WSL)
@@ -136,8 +136,9 @@ Doppelklick auf `install\uninstall.ps1` (oder Rechtsklick → „Mit PowerShell 
 |---|---|
 | `Shift+Mausrad` / `Shift+Bild↑↓` | Seitenweise scrollen |
 | `Strg+Mausrad` / `Strg+=/−/0` | Font-Zoom |
-| Klick / `Strg+Klick` auf URL | im Default-Browser öffnen (auch in Claude Code, vim, htop) |
-| Klick / `Strg+Klick` auf Pfad / `file:line` | im Editor öffnen (`FILE_LINK_EDITOR`) |
+| Doppelklick | Wort / Pfad markieren und kopieren |
+| `Strg+Klick` auf URL | im Default-Browser öffnen (auch in Claude Code, vim, htop) |
+| `Strg+Klick` auf Pfad / `file:line` | im Editor öffnen (`FILE_LINK_EDITOR`); PDF, Office, Bilder, Medien im Windows-Standardprogramm |
 | `Strg+Umschalt+Klick` | Link öffnen — Fallback, Shift umgeht jedes Maus-Capture |
 
 ---

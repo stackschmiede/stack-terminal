@@ -2,6 +2,19 @@
 
 Alle relevanten Änderungen werden hier dokumentiert. Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
+## [Unreleased]
+
+### Changed
+- **Links nur noch per `Strg+Klick`** — der einfache Klick öffnet nicht mehr, er markiert nur; Doppelklick kopiert das Wort wie bisher. Markieren, Kopieren oder Fokussieren startet so nie versehentlich ein Programm. `Strg+Umschalt+Klick` bleibt Fallback
+
+### Fixed
+- **Tab „arbeitet" trotz stillem Bildschirm** — wartet Claude Code auf eine Hintergrund-Shell oder einen Hintergrund-Agenten, ist der Turn zu Ende und der Bildschirm steht still; der Tab sah fertig aus (bzw. nach der Glocke „wartet auf dich"), obwohl Claude weitermacht, sobald die Arbeit durch ist. Der Status-Poll liest jetzt Claudes unteren Rand: Shells in der Fußzeile (`· 1 shell ·`, `· 2 shells ·`), Agenten als Liste darunter (`● main` / `◯ <agent>  <tätigkeit>`, verschwindet, wenn alle fertig sind). Der Tab bleibt so lange busy. „ran 3 shell commands" oder eine zitierte Liste im Verlauf zählen nicht
+- **Pfad-Links ohne installierten Editor** — fand die Shell `FILE_LINK_EDITOR` nicht, passierte beim Klick nichts, ohne Meldung. Jetzt geht der Pfad an das Windows-Standardprogramm (Linux-Pfade per `wslpath -w`), Ordner an den Explorer
+- **Windows-Pfade im Editor** — `C:\…` ging unverändert an das Editor-Kommando in WSL. Jetzt wird der Pfad per `wslpath -u` nach `/mnt/c/…` übersetzt, `:zeile[:spalte]` wird vorher abgetrennt und wieder angehängt
+
+### Added
+- **Dokumente im Standardprogramm** — PDFs, Office-Dateien, Bilder, Audio/Video und Archive (`EXTERNAL_EXT`) öffnen immer im Windows-Standardprogramm statt im Editor, Windows-Pfade direkt ohne Umweg über WSL. Nackte Dateinamen mit Office-Endung (`Dienstplan.xlsx`) sind jetzt ebenfalls klickbar
+
 ## [0.4.0] — 2026-10-28
 
 ### Fixed

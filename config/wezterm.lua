@@ -347,17 +347,53 @@ end
 
 local function pane_fingerprint(pane)
   local ok, txt = pcall(function() return pane:get_lines_as_text(12) end)
-  if not ok or not txt then return '0:' end
+  if not ok or not txt then return '0:', '' end
   -- djb2-hash über kompletten text → robust gegen identische suffixe + \r-overwrites
   local hash = 5381
   for i = 1, #txt do
     hash = (hash * 33 + txt:byte(i)) % 4294967296
   end
-  return tostring(#txt) .. ':' .. hash
+  return tostring(#txt) .. ':' .. hash, txt
+end
+
+-- claude code zeigt laufende hintergrund-arbeit am unteren rand: shells in der fußzeile
+-- (`⏵⏵ … · 1 shell · ↓ to manage`), agenten als liste darunter (`● main` / `◯ <agent>  <tätigkeit>`,
+-- verschwindet, sobald alle fertig sind). der turn ist dann zu ende und der bildschirm steht still,
+-- claude macht aber weiter → zählt als busy. nur der untere rand zählt, damit „ran 3 shell commands"
+-- oder eine zitierte liste im verlauf nicht greifen.
+local function bg_item(l)  -- listeneintrag → name ('main', 'general-purpose', …); kein char-class: multibyte
+  return l:match('^%s*● (%S+)') or l:match('^%s*◯ (%S+)')
+end
+
+local function has_bg_work(txt)
+  local lines = {}
+  for line in (txt or ''):gmatch('[^\n]+') do
+    if line:find('%S') then lines[#lines + 1] = line end
+  end
+  local n = #lines
+  -- agenten: einträge direkt am unteren rand (darunter höchstens die tmux-statuszeile), oben `main`
+  local i = n
+  if i >= 1 and not bg_item(lines[i]) then i = i - 1 end
+  local agents = 0
+  while i >= 1 and bg_item(lines[i]) and bg_item(lines[i]) ~= 'main' do
+    agents = agents + 1
+    i = i - 1
+  end
+  if agents > 0 and i >= 1 and bg_item(lines[i]) == 'main' then return true end
+  -- shells: fußzeilen-form in den letzten 3 zeilen (fußzeile, statuszeile, tmux-status)
+  for k = math.max(1, n - 2), n do
+    local l = lines[k]
+    if l:find('%d+ shells? ·') or l:find('%d+ shells?,') or l:find('%d+ shells?%s*$') then
+      return true
+    end
+  end
+  return false
 end
 
 -- entscheidet: ist diese pane aktuell "busy" (nicht-shell-prozess aktiv)?
 local function pane_busy(pane, st, now)
+  -- claude wartet auf hintergrund-shells oder -agenten (im status-poll erkannt)
+  if st.bg_work then return true end
   -- primär: foreground-process-detection
   local ok, name = pcall(function() return pane:get_foreground_process_name() end)
   if ok then
@@ -729,7 +765,8 @@ wezterm.on('update-status', function(window, pane)
           local pid = tostring(p:pane_id())
           alive[pid] = true
           local st = get_state(pid)
-          local fp = pane_fingerprint(p)
+          local fp, txt = pane_fingerprint(p)
+          st.bg_work = has_bg_work(txt)
           if fp ~= st.fp then
             st.fp = fp
             st.last_change = now
@@ -764,6 +801,7 @@ end)
 -- reicht: 'code' (VS Code), 'antigravity-ide' (Antigravity), 'cursor', …
 -- start läuft über `sh -c`, weil `wsl.exe -e <cmd>` windows-pfade aus dem PATH
 -- NICHT auflöst (execvpe nutzt den init-PATH, nicht den interop-PATH der session).
+-- fehlt der editor (oder '') → windows-standardprogramm, wie doppelklick im explorer.
 local FILE_LINK_EDITOR = 'code'
 
 -- hyperlink-regeln: wezterm-defaults (urls in klammern, bare urls, mailto) + pfade in
@@ -779,6 +817,7 @@ local LC = [[(?::\d+(?::\d+)?)?]]
 local EXT = 'py|js|mjs|cjs|ts|tsx|jsx|lua|dart|go|rs|md|json|ya?ml|toml|sh|bash|zsh|ps1|psm1|bat|cmd|iss'
   .. '|html?|css|scss|vue|svelte|rb|java|kt|kts|php|sql|astro|txt|cfg|ini|conf|log|csv|xml|env|lock'
   .. '|ipynb|c|h|cpp|hpp|cs|swift|zig|tf|hcl|nix|service|ics|vcf|pdf|png|jpe?g|gif|svg|webp'
+  .. '|docx?|xlsx?|xlsm|pptx?|od[tsp]|rtf|epub|zip|mp3|mp4'
 
 local PATH_RULES = {
   -- absolut (≥2 segmente): /home/user/projekt/datei.py · /etc/hosts · /mnt/c/Users/x/
@@ -817,8 +856,24 @@ local function pane_linux_cwd(pane)
   return (path:gsub('/$', ''))
 end
 
--- `$0` = editor, `$1` = ziel. `~/` wird shell-seitig auf $HOME expandiert.
-local EDITOR_SH = 't="$1"; case "$t" in "~/"*) t="$HOME/${t#"~/"}";; esac; exec "$0" -g "$t"'
+-- dokumente + medien → immer windows-standardprogramm (ein editor kann sie nicht anzeigen)
+local EXTERNAL_EXT = {}
+for ext in ([[pdf doc docx xls xlsx xlsm ppt pptx odt ods odp rtf epub png jpg jpeg gif webp bmp
+  ico tif tiff heic mp3 wav flac ogg m4a mp4 mkv mov avi webm zip 7z]]):gmatch('%w+') do
+  EXTERNAL_EXT[ext] = true
+end
+
+-- `$0` = editor ('' = keiner), `$1` = pfad (linux oder C:\…), `$2` = ':zeile[:spalte]' oder ''.
+-- editor gefunden → `editor -g pfad:zeile` (windows-pfade vorher nach /mnt/…), sonst
+-- windows-standardprogramm (linux-pfade via wslpath -w; ordner → explorer). `~/` → $HOME.
+local OPEN_SH = table.concat({
+  [[f="$1"; case "$f" in "~/"*) f="$HOME/${f#"~/"}";; esac]],
+  [[if [ -n "$0" ] && command -v "$0" >/dev/null 2>&1; then]]
+    .. [[ case "$f" in [A-Za-z]:[\\/]*) f="$(wslpath -u "$f")" || exit 1;; esac;]]
+    .. [[ exec "$0" -g "$f$2"; fi]],
+  [[case "$f" in /*) f="$(wslpath -w "$f")" || exit 1;; esac]],
+  [[exec /mnt/c/Windows/System32/rundll32.exe url.dll,FileProtocolHandler "$f"]],
+}, '; ')
 
 -- file://-uris (z.b. OSC-8-links aus TUIs) → pfad. percent-decoding, wsl-host-formen.
 local function file_uri_to_path(uri)
@@ -834,9 +889,9 @@ local function file_uri_to_path(uri)
   return (rest:gsub('^localhost', ''))
 end
 
-local function open_in_editor(target)
+local function open_path(editor, file, suffix)
   wezterm.background_child_process {
-    'wsl.exe', '-d', '{{WSL_DISTRO}}', '-e', 'sh', '-c', EDITOR_SH, FILE_LINK_EDITOR, target,
+    'wsl.exe', '-d', '{{WSL_DISTRO}}', '-e', 'sh', '-c', OPEN_SH, editor, file, suffix,
   }
 end
 
@@ -851,21 +906,28 @@ wezterm.on('open-uri', function(window, pane, uri)
     return false
   end
 
-  -- pfad[:zeile[:spalte]] → editor. satzzeichen am ende abschneiden (defensiv).
+  -- pfad[:zeile[:spalte]]. satzzeichen am ende abschneiden (defensiv), zeile abtrennen.
   local target = uri:gsub('[.,;:]+$', '')
-  if not target:match('^%a:[/\\]') then
-    -- linux-pfad: relative pfade gegen das pane-cwd auflösen (`~/` expandiert die shell)
-    local file, suffix = target:match('^(.-)(:%d+:?%d*)$')
-    file = file or target
-    suffix = suffix or ''
-    if file:sub(1, 1) ~= '/' and file:sub(1, 2) ~= '~/' then
-      local cwd = pane_linux_cwd(pane)
-      if cwd then file = cwd .. '/' .. file end
-    end
-    target = file .. suffix
+  local file, suffix = target:match('^(.-)(:%d+:?%d*)$')
+  file = file or target
+  suffix = suffix or ''
+  local win = file:match('^%a:[/\\]') ~= nil
+  -- relative linux-pfade gegen das pane-cwd auflösen (`~/` expandiert die shell)
+  if not win and file:sub(1, 1) ~= '/' and file:sub(1, 2) ~= '~/' then
+    local cwd = pane_linux_cwd(pane)
+    if cwd then file = cwd .. '/' .. file end
   end
-  -- windows-pfade (C:\…) gehen unverändert an den editor (interop reicht sie 1:1 durch)
-  open_in_editor(target)
+  local ext = (file:match('%.(%w+)$') or ''):lower()
+  if not EXTERNAL_EXT[ext] then
+    open_path(FILE_LINK_EDITOR, file, suffix)
+  elseif win then
+    -- windows-dokument: direkt, ohne umweg über wsl
+    wezterm.background_child_process {
+      'rundll32.exe', 'url.dll,FileProtocolHandler', (file:gsub('/', '\\')),
+    }
+  else
+    open_path('', file, '')
+  end
   return false
 end)
 
@@ -1087,7 +1149,7 @@ config.keys = {
 -- maus-bindings
 -- TUIs mit maus-capture (claude code ≥2.1.3xx, vim, htop, …) bekommen von wezterm sonst
 -- ALLE maus-events; bindings greifen dort nur mit Shift. die `mouse_reporting = true`-
--- varianten holen linksklick (selektion + link öffnen), rechtsklick (paste) und
+-- varianten holen linksklick (selektion, strg+klick öffnet links), rechtsklick (paste) und
 -- Strg+mausrad (zoom) auch in solchen TUIs zurück ans terminal. mausrad ohne modifier
 -- bleibt bei der app (claude code scrollt damit sein eigenes transkript).
 -- ═══════════════════════════════════════════════════════════════
@@ -1105,8 +1167,9 @@ local function terminal_owned_mouse()
     { event = { Drag = { streak = 1, button = 'Left' } }, mods = 'NONE', action = act.ExtendSelectionToMouseCursor 'Cell' },
     { event = { Drag = { streak = 2, button = 'Left' } }, mods = 'NONE', action = act.ExtendSelectionToMouseCursor 'Word' },
     { event = { Drag = { streak = 3, button = 'Left' } }, mods = 'NONE', action = act.ExtendSelectionToMouseCursor 'Line' },
-    -- loslassen ohne drag: link unter dem cursor öffnen · mit drag: selektion → clipboard
-    { event = { Up = { streak = 1, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelectionOrOpenLinkAtMouseCursor 'Clipboard' },
+    -- loslassen: selektion → clipboard (doppelklick = wort kopieren) · links öffnet nur
+    -- strg+klick, damit markieren und kopieren nie versehentlich etwas startet
+    { event = { Up = { streak = 1, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
     { event = { Up = { streak = 2, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
     { event = { Up = { streak = 3, button = 'Left' } }, mods = 'NONE', action = act.CompleteSelection 'Clipboard' },
     -- strg+klick: link öffnen (auch bei bestehender selektion) · Down = Nop, damit keine selektion startet
