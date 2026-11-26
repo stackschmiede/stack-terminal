@@ -180,8 +180,23 @@ stack-terminal/
 │   └── workflows/release.yml — Auto-Build bei Git-Tag
 ├── docs/
 │   └── customization.md
+├── tests/                    — Config-Tests gegen die echte wezterm.exe (aus WSL)
 └── preview/                  — Screenshots
 ```
+
+---
+
+## Tests
+
+Aus WSL, braucht `wezterm.exe` unter Windows (Pfad per `WEZTERM_EXE` änderbar):
+
+```bash
+bash tests/verify.sh          # schnell: Config lädt ohne Fehler und WezTerm übernimmt sie
+bash tests/verify.sh --full   # zusätzlich Link-Handler und Tab-States
+STACK_TERMINAL_CFG=/mnt/c/Users/<du>/.wezterm.lua bash tests/verify.sh --full   # eigene/installierte Config prüfen
+```
+
+`wezterm show-keys` allein taugt nicht als Prüfung: Bei kaputter Config endet es trotzdem mit Exit 0, WezTerm fällt still auf die Standard-Config zurück. Das Skript lädt die Config deshalb per `pcall(dofile)` und prüft zusätzlich, ob die eigenen Maus-Bindings ankommen.
 
 ---
 

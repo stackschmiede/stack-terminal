@@ -1,0 +1,5 @@
+# tier-0 schnell-stufe (stop-gate bei jedem sitzungsende, wenige sekunden):
+# config/wezterm.lua lädt ohne lua-fehler in der echten wezterm.exe UND wezterm übernimmt sie
+# (eigene maus-bindings in show-keys — show-keys allein endet auch bei kaputter config mit exit 0).
+# braucht windows-interop: im firejail-jail rot (wezterm.exe fehlt). volle suite: .verify.full
+bash tests/verify.sh

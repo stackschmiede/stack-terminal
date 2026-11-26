@@ -13,6 +13,7 @@ Alle relevanten Änderungen werden hier dokumentiert. Format orientiert sich an 
 - **Windows-Pfade im Editor** — `C:\…` ging unverändert an das Editor-Kommando in WSL. Jetzt wird der Pfad per `wslpath -u` nach `/mnt/c/…` übersetzt, `:zeile[:spalte]` wird vorher abgetrennt und wieder angehängt
 
 ### Added
+- **Tests** — `tests/verify.sh` lädt die Config in der echten `wezterm.exe` (`pcall(dofile)` + Prüfung der eigenen Maus-Bindings, weil `show-keys` auch bei kaputter Config mit Exit 0 endet); `--full` prüft zusätzlich Link-Handler (13 Fälle) und Tab-States inkl. Hintergrund-Shells/-Agenten (17 Fälle). `.verify` / `.verify.full` binden das an das Verify-Gate
 - **Dokumente im Standardprogramm** — PDFs, Office-Dateien, Bilder, Audio/Video und Archive (`EXTERNAL_EXT`) öffnen immer im Windows-Standardprogramm statt im Editor, Windows-Pfade direkt ohne Umweg über WSL. Nackte Dateinamen mit Office-Endung (`Dienstplan.xlsx`) sind jetzt ebenfalls klickbar
 
 ## [0.4.0] — 2026-10-28
