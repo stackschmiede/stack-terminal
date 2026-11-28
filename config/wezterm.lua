@@ -519,8 +519,12 @@ local CU_SCRIPT = os.getenv('USERPROFILE') .. '\\.wezterm-claude-usage.sh'
 local CU_CACHE  = os.getenv('WEZTERM_CLAUDE_USAGE_CACHE')          -- override nur für tests
   or (os.getenv('USERPROFILE') .. '\\.wezterm-claude-usage.json')
 local CU_RENDER = os.getenv('USERPROFILE') .. '\\.wezterm-claude-usage-render.ps1'
-local CU_BASE   = os.getenv('USERPROFILE') .. '\\.wezterm-claude-usage'  -- + .a.png · .b.png · .spec · .err
+local CU_DIR    = os.getenv('WEZTERM_CLAUDE_USAGE_DIR')            -- override nur für tests
+  or os.getenv('USERPROFILE')
+local CU_BASE   = CU_DIR .. '\\.wezterm-claude-usage'                -- + .<zeit>-<n>.png (je render) · .spec · .err
 local CU_RENDER_TIMEOUT = 20                                             -- sekunden bis zum fallback auf 'top'
+local CU_KEEP     = 60                                                   -- sekunden, die ein abgelöstes bild noch liegt
+local CU_LEFTOVER = 86400                                                -- bilder früherer prozesse: nach einem tag weg
 local CU_FONT_PT = 10                                                    -- schriftgröße im bild (px = pt × dpi / 72)
 local CU_PIE    = { '○', '◔', '◑', '◕', '●' }                        -- füllstand in 5 stufen
 local CU_STOPS  = { 'success', 'success', 'warn', 'danger', 'danger' }  -- farbverlauf: 0 · t1 · t2 · t3 · 100
@@ -671,21 +675,65 @@ local function cu_format(runs)
 end
 
 -- bild-zustand im GLOBAL (überlebt config-reloads, gilt für alle fenster):
---   cu_png = angezeigtes bild · cu_spec = zuletzt beauftragter inhalt · cu_slot = zuletzt beschriebener slot
+--   cu_png = angezeigtes bild · cu_spec = zuletzt beauftragter inhalt · cu_seq = zähler für dateinamen
 --   cu_job, cu_job_at = laufender render (ziel-png, start) · cu_failed = fallback auf die tab-leiste aktiv
-local function cu_render_reset()
+--   cu_old = abgelöste bilder (pfad → zeitpunkt) · cu_swept = reste früherer prozesse aufgeräumt
+-- jeder render schreibt ein NEUES bild, ein abgelöstes wird erst nach CU_KEEP gelöscht: wezterm übernimmt
+-- overrides verzögert, und fehlt die datei in dem moment, bleibt die anzeige leer, bis sich der inhalt
+-- ändert (der marker in apply_theme sieht keinen grund für einen neuen versuch). die früheren zwei
+-- slots a/b wurden beim schnellen neu-rendern (fensterstart) gelöscht, während wezterm sie gerade lud.
+local function cu_retire(path, now)
+  if not path then return end
   local G = wezterm.GLOBAL
+  if not G.cu_old then G.cu_old = {} end
+  G.cu_old[path] = now  -- über G schreiben: eine lokale kopie der tabelle landet nicht im GLOBAL
+end
+
+local function cu_sweep(now)
+  local G = wezterm.GLOBAL
+  if G.cu_old then
+    local due = {}
+    for path in pairs(G.cu_old) do  -- werte per index lesen: pairs liefert sie als userdata, nicht als zahl
+      local at = tonumber(G.cu_old[path])
+      if not at or now - at >= CU_KEEP or now < at then due[#due + 1] = tostring(path) end
+    end
+    for _, path in ipairs(due) do
+      os.remove(path)
+      G.cu_old[path] = nil
+    end
+  end
+  if G.cu_swept then return end
+  G.cu_swept = true  -- einmal pro prozess: reste früherer prozesse und die alten slots a/b
+  local ok, entries = pcall(wezterm.read_dir, CU_DIR)
+  if not ok or type(entries) ~= 'table' then return end
+  local function name_of(p) return p and p:match('[^\\/]+$') end
+  for _, path in ipairs(entries) do
+    local name = name_of(path)
+    local id = name and name:match('^%.wezterm%-claude%-usage%.(.+)%.png$')
+    if id and name ~= name_of(G.cu_png) and name ~= name_of(G.cu_job) then
+      -- bild eines laufenden zweiten prozesses ist jünger als CU_LEFTOVER und bleibt; a/b ohne zeit → weg
+      local at = tonumber(id:match('^(%d+)%-')) or 0
+      if now - at >= CU_LEFTOVER or now < at then os.remove(path) end
+    end
+  end
+end
+
+local function cu_render_reset(now)
+  local G = wezterm.GLOBAL
+  if G.cu_png or G.cu_job then
+    cu_retire(G.cu_png, now)
+    cu_retire(G.cu_job, now)  -- ein noch laufender render schreibt es evtl. später
+  end
   G.cu_png, G.cu_spec, G.cu_job = nil, nil, nil
 end
 
--- zwei slots im wechsel: gleicher pfad → overrides unverändert → wezterm lädt nichts neu. der ältere
--- slot wird erst vor seiner wiederverwendung gelöscht, das angezeigte bild bleibt also auf platte.
 local function cu_render(window, runs, now)
   local G = wezterm.GLOBAL
   if G.cu_job then
     local f = io.open(G.cu_job, 'rb')
     if f then
       f:close()
+      cu_retire(G.cu_png, now)
       G.cu_png, G.cu_job = G.cu_job, nil  -- apply_theme übernimmt den neuen pfad im nächsten tick
     elseif now - G.cu_job_at >= 0 and now - G.cu_job_at < CU_RENDER_TIMEOUT then
       return
@@ -695,16 +743,15 @@ local function cu_render(window, runs, now)
         .. (e and (': ' .. e:read('*a')) or ''))
       if e then e:close() end
       G.cu_failed = true
-      cu_render_reset()
+      cu_render_reset(now)
       return
     end
   end
   local spec = wezterm.json_encode(runs)
   if spec == G.cu_spec then return end
   G.cu_spec = spec
-  G.cu_slot = G.cu_slot == 'a' and 'b' or 'a'
-  local out = CU_BASE .. '.' .. G.cu_slot .. '.png'
-  os.remove(out)
+  G.cu_seq = (tonumber(G.cu_seq) or 0) + 1
+  local out = string.format('%s.%d-%d.png', CU_BASE, now, G.cu_seq)
   os.remove(CU_BASE .. '.err')
   -- dpi nur hier, nicht im vergleich: sonst rendern fenster auf zwei monitoren gegeneinander an
   local px = math.floor(CU_FONT_PT * window:get_dimensions().dpi / 72 + 0.5)
@@ -721,13 +768,14 @@ end
 local cu_last_err = nil
 local function cu_status_items(window, now)
   local ok, items = pcall(function()
+    cu_sweep(now)
     local bottom = CLAUDE_USAGE.position == 'bottom' and not wezterm.GLOBAL.cu_failed
     local runs = cu_runs(now)
     if bottom and #runs > 0 then
       cu_render(window, runs, now)
       return {}
     end
-    cu_render_reset()
+    cu_render_reset(now)
     return cu_format(runs)
   end)
   if not ok then

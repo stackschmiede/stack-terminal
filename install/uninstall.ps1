@@ -59,7 +59,7 @@ if (Test-Path $PasteHelperDst) {
 
 foreach ($name in @(
   '.wezterm-claude-usage.sh', '.wezterm-claude-usage.json', '.wezterm-claude-usage-render.ps1',
-  '.wezterm-claude-usage.a.png', '.wezterm-claude-usage.b.png', '.wezterm-claude-usage.spec', '.wezterm-claude-usage.err'
+  '.wezterm-claude-usage.spec', '.wezterm-claude-usage.err'
 )) {
   $p = Join-Path $env:USERPROFILE $name
   if (Test-Path $p) {
@@ -68,6 +68,14 @@ foreach ($name in @(
     Write-OK "$name entfernt."
   }
 }
+# Nutzungsbilder: je Render eine Datei (.wezterm-claude-usage.<zeit>-<n>.png, bis 0.5.0 .a/.b.png)
+Get-ChildItem -LiteralPath $env:USERPROFILE -Filter '.wezterm-claude-usage.*.png' -Force -ErrorAction SilentlyContinue |
+  Where-Object { $_.Name -match '^\.wezterm-claude-usage\..+\.png$' } |
+  ForEach-Object {
+    Write-Step "Loesche $($_.FullName)"
+    Remove-Item -LiteralPath $_.FullName -Force
+    Write-OK "$($_.Name) entfernt."
+  }
 
 if (-not $KeepBackups) {
   if (-not $NonInteractive) {

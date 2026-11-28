@@ -2,6 +2,14 @@
 
 Alle relevanten Änderungen werden hier dokumentiert. Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionierung folgt [SemVer](https://semver.org/lang/de/).
 
+## [Unreleased]
+
+### Fixed
+- **Claude-Nutzung verschwand nach dem Start** — die Config renderte abwechselnd in zwei feste Dateien (`.a.png` / `.b.png`) und löschte die Zieldatei vor jedem Render. Beim Fensterstart wird mehrmals kurz hintereinander gerendert (Platzhalter, dann echte Daten); dabei verschwand das Bild, das WezTerm gerade übernehmen wollte. Ein fehlgeschlagenes Laden versucht WezTerm nicht erneut, die Anzeige blieb leer, bis sich der Inhalt änderte. Jetzt bekommt jeder Render eine eigene Datei (`.wezterm-claude-usage.<zeit>-<n>.png`), ein abgelöstes Bild wird erst nach 60 Sekunden gelöscht, Reste früherer Prozesse beim Start (nach einem Tag). Der Uninstaller räumt per Muster auf
+
+### Added
+- **Test für die Bild-Dateien** — `tests/render_test.lua` (in `tests/verify.sh --full`) fährt den Status-Poll mit gemockter Uhr und prüft u. a., dass das angezeigte Bild in jedem Tick existiert (19 Fälle)
+
 ## [0.5.0] — 2026-11-26
 
 ### Changed

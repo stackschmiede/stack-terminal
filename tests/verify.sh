@@ -3,7 +3,8 @@
 #   schnell (default): config lädt ohne lua-fehler (pcall + dofile) und wezterm übernimmt sie
 #                      (eigene maus-bindings in show-keys — show-keys allein endet auch bei
 #                      kaputter config mit exit 0, wezterm fällt still auf die standard-config zurück)
-#   --full:            zusätzlich open-uri-handler (tests/handler_test.lua) + tab-state (tests/busy_test.lua)
+#   --full:            zusätzlich open-uri-handler (tests/handler_test.lua), tab-state (tests/busy_test.lua)
+#                      und dateien des nutzungs-bilds (tests/render_test.lua)
 # braucht windows-interop (wezterm.exe aus WSL) — im firejail-jail nicht vorhanden → rot mit meldung.
 # wezterm-pfad überschreibbar: WEZTERM_EXE=/mnt/c/…/wezterm.exe · quell-config (mutationstests): STACK_TERMINAL_CFG
 set -euo pipefail
@@ -19,7 +20,7 @@ if [ ! -x "$W" ]; then
 fi
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/stack-terminal-verify.XXXXXX")"
-cleanup() { rm -f "$T"/*; rmdir "$T"; }
+cleanup() { rm -f "$T"/* "$T"/.wezterm-claude-usage.*; rmdir "$T"; }
 trap cleanup EXIT
 
 CFG="$T/wezterm.lua"
@@ -33,10 +34,11 @@ if grep -n '{{' "$CFG"; then
 fi
 
 fail=0
-# <name> <test.lua> → schreibt nach $T/<name>.out; extra env per WT_ED
+# <name> <test.lua> → schreibt nach $T/<name>.out; extra env per WT_ED, weitere exportierte
+# variablen über WT_WSLENV_EXTRA (":NAME/p…")
 run_lua() {
   local name="$1" lua="$2"
-  WSLENV="WT_CFG/p:WT_OUT/p:WT_ED" WT_CFG="$CFG" WT_OUT="$T/$name.out" WT_ED="${WT_ED:-code}" \
+  WSLENV="WT_CFG/p:WT_OUT/p:WT_ED${WT_WSLENV_EXTRA:-}" WT_CFG="$CFG" WT_OUT="$T/$name.out" WT_ED="${WT_ED:-code}" \
     "$W" --config-file "$(wslpath -w "$PWD/$lua")" show-keys > "$T/$name.keys" 2> "$T/$name.err" || true
 }
 check_result() { # <name> → RESULT n/n ohne FAIL
@@ -77,6 +79,12 @@ if [ "$FULL" = 1 ]; then
   check_result handler
   run_lua busy tests/busy_test.lua
   check_result busy
+  # bild-dateien landen in $T statt in %USERPROFILE%, cache = fixture des tests
+  export WEZTERM_CLAUDE_USAGE_DIR="$T" WEZTERM_CLAUDE_USAGE_CACHE="$T/cu-cache.json"
+  : > "$WEZTERM_CLAUDE_USAGE_CACHE"
+  WT_WSLENV_EXTRA=":WEZTERM_CLAUDE_USAGE_DIR/p:WEZTERM_CLAUDE_USAGE_CACHE/p" run_lua render tests/render_test.lua
+  unset WEZTERM_CLAUDE_USAGE_DIR WEZTERM_CLAUDE_USAGE_CACHE
+  check_result render
 fi
 
 [ "$fail" = 0 ] && echo "✅ stack-terminal verify ($([ "$FULL" = 1 ] && echo voll || echo schnell)): grün"
