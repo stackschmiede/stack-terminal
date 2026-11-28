@@ -152,11 +152,19 @@ end
 -- x = linker rand IM bild: horizontal_offset kam bei align Left im fenster nicht an (text am fensterrand).
 local CU_CANVAS = { w = 1800, h = 40, x = 24 }
 
+-- wordmark unten rechts. nach einer selbstheilung (bh_*, weiter unten) zeigt der layer auf eine
+-- kopie mit gleichen pixeln (GLOBAL.bh_logo); bh_off = bilder aus, nur noch die farbfläche.
+local BG_LOGO = '{{ASSETS_PATH}}\\logo-wordmark.png'
+
 local function make_background(p)
+  local G = wezterm.GLOBAL
   local layers = {
     { source = { Color = p.bg }, width = '100%', height = '100%', opacity = 1.0 },
-    {
-      source             = { File = '{{ASSETS_PATH}}\\logo-wordmark.png' },
+  }
+  if G.bh_off then return layers end
+  if not G.bh_logo_off then
+    layers[#layers + 1] = {
+      source             = { File = G.bh_logo or BG_LOGO },
       repeat_x           = 'NoRepeat',
       repeat_y           = 'NoRepeat',
       vertical_align     = 'Bottom',
@@ -167,11 +175,11 @@ local function make_background(p)
       horizontal_offset  = -22,
       vertical_offset    = -18,
       attachment         = 'Fixed',
-    },
-  }
-  if wezterm.GLOBAL.cu_png then
+    }
+  end
+  if G.cu_png then
     layers[#layers + 1] = {
-      source             = { File = wezterm.GLOBAL.cu_png },
+      source             = { File = G.cu_png },
       repeat_x           = 'NoRepeat',
       repeat_y           = 'NoRepeat',
       vertical_align     = 'Bottom',
@@ -210,7 +218,8 @@ local function effective_appearance(window)
   return safe_get_appearance()
 end
 
--- per-window-id tracker für den angewandten stand (`mode|png`: theme + nutzungs-bild) —
+-- per-window-id tracker für den angewandten stand (`mode|png|heil-stand`: theme + nutzungs-bild
+-- + selbstheilung der hintergrundbilder) —
 -- nach config-reload wird marker gecleart (siehe window-config-reloaded event), sodass next
 -- apply_theme die neuen palette-werte in die overrides schreibt (sonst blockiert der no-op-guard).
 wezterm.GLOBAL.applied_mode = wezterm.GLOBAL.applied_mode or {}
@@ -219,7 +228,8 @@ local function apply_theme(window)
   if not window then return end
   local wid = tostring(window:window_id())
   local p = palette_for(effective_appearance(window))
-  local marker = p.mode .. '|' .. tostring(wezterm.GLOBAL.cu_png)
+  local G = wezterm.GLOBAL
+  local marker = table.concat({ p.mode, tostring(G.cu_png), tostring(G.bh_epoch), tostring(G.bh_off) }, '|')
   if wezterm.GLOBAL.applied_mode[wid] == marker then return end  -- no-op (kein loop bei polling)
   assign_palette(p)
   local overrides = window:get_config_overrides() or {}
@@ -674,6 +684,63 @@ local function cu_format(runs)
   return seg
 end
 
+-- selbstheilung der hintergrundbilder (bh_*): wezterm lagert jedes dekodierte hintergrundbild als
+-- datei nach %TEMP%\wezterm-blob-lease-<rand>\ aus und liest es bei jedem neuaufbau des textur-atlas
+-- (jeder override-wechsel, jeder reload) wieder ein. räumt jemand %TEMP% auf (speicheroptimierung,
+-- „temporäre dateien löschen"), scheitert ab dem nächsten neuaufbau JEDER paint des fensters, bis zum
+-- neustart. dieselbe datei neu einzuhängen hilft nicht: wezterm merkt sich das dekodierte bild je
+-- inhalts-hash der bilddatei. eine kopie mit anderem datei-inhalt und gleichen pixeln (zusätzlicher
+-- tEXt-chunk) dekodiert es dagegen neu, die ausgelagerte datei ist wieder da (belegt 2026-11-28,
+-- wezterm 20240203, eigener prozess).
+-- ablauf: alle BH_CHECK sekunden das eigene log auf neue solche fehler prüfen → bh_heal zählt den
+-- stand (GLOBAL.bh_epoch) hoch und hängt logo + angezeigtes nutzungs-bild als gestempelte kopie neu
+-- ein; jedes später gerenderte nutzungs-bild bekommt den stempel des stands. F5 heilt von hand.
+-- hilft das BH_MAX mal in BH_WINDOW sekunden nicht, bleiben die bilder aus (bh_off), bis F5.
+local BH_CHECK  = 5                                                      -- sekunden zwischen zwei blicken ins log
+local BH_SETTLE = 10                                                     -- sekunden nach einer heilung, in denen fehler nicht zählen
+local BH_MAX    = 3                                                      -- heilungen je BH_WINDOW, dann bilder aus
+local BH_WINDOW = 300
+local BH_TAIL   = 65536                                                  -- höchstens so viele bytes log je blick
+local BH_PID    = 0
+pcall(function() BH_PID = math.floor(tonumber(wezterm.procinfo.pid()) or 0) end)
+local BH_LOG    = os.getenv('WEZTERM_BG_HEAL_LOG')                       -- override nur für tests
+  or string.format('%s\\.local\\share\\wezterm\\wezterm-gui.exe-log-%d.txt', wezterm.home_dir, BH_PID)
+local BH_BASE   = CU_DIR .. '\\.wezterm-bg-heal'                         -- + .<pid>-<stand>.png (logo-kopie)
+
+local function bh_crc32(s)
+  local crc = 0xFFFFFFFF
+  for i = 1, #s do
+    crc = crc ~ s:byte(i)
+    for _ = 1, 8 do crc = (crc >> 1) ~ (0xEDB88320 & -(crc & 1)) end
+  end
+  return crc ~ 0xFFFFFFFF
+end
+
+local PNG_SIG, PNG_IEND = '\x89PNG\r\n\x1a\n', '\0\0\0\0IEND\xAE\x42\x60\x82'
+
+-- schreibt src mit zusätzlichem tEXt-chunk (vor IEND) nach dst: gleiche pixel, anderer datei-inhalt.
+-- src == dst ist erlaubt. false = src fehlt, ist (noch) kein vollständiges png, oder dst ist nicht schreibbar
+local function bh_stamp(src, dst, epoch)
+  local f = io.open(src, 'rb')
+  if not f then return false end
+  local data = f:read('*a')
+  f:close()
+  if not data or data:sub(1, 8) ~= PNG_SIG or data:sub(-12) ~= PNG_IEND then return false end
+  local body = 'tEXtComment\0wezterm-bg-heal ' .. epoch
+  local o = io.open(dst, 'wb')
+  if not o then return false end
+  o:write(data:sub(1, -13), string.pack('>I4', #body - 4), body, string.pack('>I4', bh_crc32(body)), PNG_IEND)
+  o:close()
+  return true
+end
+
+-- lebt unter dieser pid ein wezterm? ohne auskunft = ja (die logo-kopie eines anderen prozesses bleibt liegen)
+local function bh_wezterm_alive(pid)
+  local ok, info = pcall(wezterm.procinfo.get_info_for_pid, pid)
+  if not ok then return true end
+  return info ~= nil and tostring(info.name):lower():find('wezterm', 1, true) ~= nil
+end
+
 -- bild-zustand im GLOBAL (überlebt config-reloads, gilt für alle fenster):
 --   cu_png = angezeigtes bild · cu_spec = zuletzt beauftragter inhalt · cu_seq = zähler für dateinamen
 --   cu_job, cu_job_at = laufender render (ziel-png, start) · cu_failed = fallback auf die tab-leiste aktiv
@@ -715,6 +782,9 @@ local function cu_sweep(now)
       local at = tonumber(id:match('^(%d+)%-')) or 0
       if now - at >= CU_LEFTOVER or now < at then os.remove(path) end
     end
+    -- logo-kopie einer heilung: weg, sobald ihr prozess nicht mehr lebt
+    local pid = name and tonumber(name:match('^%.wezterm%-bg%-heal%.(%d+)%-%d+%.png$'))
+    if pid and pid ~= BH_PID and not bh_wezterm_alive(pid) then os.remove(path) end
   end
 end
 
@@ -727,12 +797,83 @@ local function cu_render_reset(now)
   G.cu_png, G.cu_spec, G.cu_job = nil, nil, nil
 end
 
+-- neue fehler `paint_pass failed: render_backgrounds: … BlobLease` im eigenen log seit dem letzten blick?
+local function bh_log_broken()
+  local G = wezterm.GLOBAL
+  local f = io.open(BH_LOG, 'rb')
+  if not f then return false end  -- wezterm legt das log erst mit der ersten zeile an
+  local size = f:seek('end') or 0
+  local pos = tonumber(G.bh_log_pos) or 0
+  if pos > size then pos = 0 end
+  local hit = false
+  if size > pos then
+    f:seek('set', math.max(pos, size - BH_TAIL))
+    hit = (f:read('*a') or ''):find('render_backgrounds[^\r\n]*BlobLease') ~= nil
+  end
+  f:close()
+  G.bh_log_pos = size
+  return hit
+end
+
+-- hintergrundbilder mit neuem datei-inhalt einhängen (apply_theme übernimmt sie über den marker).
+-- meldungen hier ohne das suchmuster von bh_log_broken, sonst löst das eigene log die nächste heilung aus
+local function bh_heal(now)
+  local G = wezterm.GLOBAL
+  local first = tonumber(G.bh_first_at) or 0
+  if now - first >= BH_WINDOW or now < first then G.bh_first_at, G.bh_count = now, 0 end
+  G.bh_count = (tonumber(G.bh_count) or 0) + 1
+  if G.bh_count > BH_MAX then
+    G.bh_off = true
+    G.cu_failed = true  -- nutzung zurück in die tab-leiste
+    wezterm.log_error('hintergrundbilder aus: ' .. BH_MAX .. ' heilungen in ' .. BH_WINDOW
+      .. ' s, wezterm kann seine ausgelagerten bilddateien weiter nicht lesen. F5 versucht es neu, sonst wezterm neu starten')
+    return
+  end
+  local epoch = (tonumber(G.bh_epoch) or 0) + 1
+  G.bh_epoch = epoch
+  G.bh_settle = now + BH_SETTLE
+  wezterm.log_warn('hintergrundbilder neu eingehängt (stand ' .. epoch
+    .. '): wezterms ausgelagerte bilddateien fehlten oder F5')
+  local old = G.bh_logo
+  local copy = string.format('%s.%d-%d.png', BH_BASE, BH_PID, epoch)
+  if bh_stamp(BG_LOGO, copy, epoch) then
+    G.bh_logo, G.bh_logo_off = copy, nil
+  else
+    G.bh_logo, G.bh_logo_off = nil, true
+    wezterm.log_error('hintergrund-logo aus: ' .. BG_LOGO .. ' ist kein lesbares png oder ' .. copy .. ' nicht schreibbar')
+  end
+  if old then cu_retire(old, now) end
+  if G.cu_png then
+    G.cu_seq = (tonumber(G.cu_seq) or 0) + 1
+    local png = string.format('%s.%d-%d.png', CU_BASE, now, G.cu_seq)
+    local ok = bh_stamp(G.cu_png, png, epoch)
+    cu_retire(G.cu_png, now)
+    if ok then G.cu_png = png else G.cu_png, G.cu_spec = nil, nil end  -- sonst neu rendern (bekommt den stempel)
+  end
+end
+
+-- je status-tick: höchstens alle BH_CHECK sekunden ins log sehen (je prozess, nicht je fenster)
+local function bh_watch(now)
+  local G = wezterm.GLOBAL
+  if G.bh_off then return end
+  local last = tonumber(G.bh_check_at) or 0
+  if now - last < BH_CHECK and now >= last then return end
+  G.bh_check_at = now
+  local broken = bh_log_broken()  -- liest immer bis zum ende: fehler aus der ruhezeit sind damit abgehakt
+  local settle = tonumber(G.bh_settle) or 0
+  if broken and (now >= settle or settle - now > BH_SETTLE) then bh_heal(now) end
+end
+
 local function cu_render(window, runs, now)
   local G = wezterm.GLOBAL
   if G.cu_job then
     local f = io.open(G.cu_job, 'rb')
-    if f then
-      f:close()
+    if f then f:close() end
+    -- nach einer heilung trägt jedes neue bild den stempel des stands: ein bild mit gleichem inhalt wie
+    -- ein früheres träfe sonst wieder dessen unlesbar gewordenes dekodiertes bild. stempeln scheitert,
+    -- solange die datei unvollständig ist → nächster tick
+    local epoch = tonumber(G.bh_epoch) or 0
+    if f and (epoch == 0 or bh_stamp(G.cu_job, G.cu_job, epoch)) then
       cu_retire(G.cu_png, now)
       G.cu_png, G.cu_job = G.cu_job, nil  -- apply_theme übernimmt den neuen pfad im nächsten tick
     elseif now - G.cu_job_at >= 0 and now - G.cu_job_at < CU_RENDER_TIMEOUT then
@@ -797,6 +938,9 @@ end
 -- status-bar + attention-polling (clearing bei neuem output)
 -- ═══════════════════════════════════════════════════════════════
 wezterm.on('update-status', function(window, pane)
+  -- hintergrundbilder: scheitert das malen an wezterms ausgelagerten bilddateien, neu einhängen
+  -- (vor apply_theme, damit derselbe tick sie übernimmt)
+  pcall(bh_watch, os.time())
   -- live-poll für system-theme-wechsel (no-op falls mode unverändert)
   pcall(function() apply_theme(window) end)
 
@@ -1132,12 +1276,17 @@ local smart_paste = wezterm.action_callback(function(window, pane)
   end
 end)
 
--- F5: config neu laden und nutzungs-bild neu rendern (holt es auch nach einem fallback zurück)
-local reload_config = wezterm.action_callback(function(window, pane)
-  wezterm.GLOBAL.cu_failed = nil
-  wezterm.GLOBAL.cu_spec = nil
+-- F5: config neu laden, hintergrundbilder frisch einhängen (heilt von hand, s. bh_*) und nutzungs-bild
+-- neu rendern (holt es auch nach einem fallback zurück). benanntes event statt action_callback: testbar
+wezterm.on('stack-reload', function(window, pane)
+  local G = wezterm.GLOBAL
+  G.cu_failed = nil
+  G.cu_spec = nil
+  G.bh_off, G.bh_count = nil, 0
+  pcall(bh_heal, os.time())
   window:perform_action(act.ReloadConfiguration, pane)
 end)
+local reload_config = act.EmitEvent 'stack-reload'
 
 config.keys = {
   { key = 'c', mods = 'CTRL',       action = smart_ctrl_c },

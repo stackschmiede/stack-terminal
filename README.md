@@ -125,7 +125,7 @@ Doppelklick auf `install\uninstall.ps1` (oder Rechtsklick → „Mit PowerShell 
 | Shortcut | Aktion |
 |---|---|
 | `F1` / Doppel-Rechtsklick | About-Overlay |
-| `F5` | Config neu laden |
+| `F5` | Config neu laden, Hintergrundbilder frisch einlesen |
 | `Strg+Umschalt+L` | Launcher (Projekte aus Launch-Menu) |
 | `Strg+Umschalt+O` | Workspace-Switcher |
 | `Strg+Umschalt+F` | Scrollback durchsuchen |

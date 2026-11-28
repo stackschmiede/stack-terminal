@@ -76,6 +76,14 @@ Get-ChildItem -LiteralPath $env:USERPROFILE -Filter '.wezterm-claude-usage.*.png
     Remove-Item -LiteralPath $_.FullName -Force
     Write-OK "$($_.Name) entfernt."
   }
+# Logo-Kopien der Selbstheilung der Hintergrundbilder (.wezterm-bg-heal.<pid>-<n>.png)
+Get-ChildItem -LiteralPath $env:USERPROFILE -Filter '.wezterm-bg-heal.*.png' -Force -ErrorAction SilentlyContinue |
+  Where-Object { $_.Name -match '^\.wezterm-bg-heal\.\d+-\d+\.png$' } |
+  ForEach-Object {
+    Write-Step "Loesche $($_.FullName)"
+    Remove-Item -LiteralPath $_.FullName -Force
+    Write-OK "$($_.Name) entfernt."
+  }
 
 if (-not $KeepBackups) {
   if (-not $NonInteractive) {

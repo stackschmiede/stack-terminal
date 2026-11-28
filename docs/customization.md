@@ -27,11 +27,11 @@ Aufruf via `Strg+Umschalt+L` — Fuzzy-Suche.
 
 ## Logo ersetzen
 
-Das Wordmark-PNG liegt unter `%USERPROFILE%\.wezterm-assets\logo-wordmark.png`. Ersetzen reicht — Größe im `config.background`-Block anpassen:
+Das Wordmark-PNG liegt unter `%USERPROFILE%\.wezterm-assets\logo-wordmark.png` (Pfad in `BG_LOGO`). Ersetzen reicht — Größe im Logo-Layer von `make_background` anpassen:
 
 ```lua
 {
-  source = { File = '...\\logo-wordmark.png' },
+  source = { File = G.bh_logo or BG_LOGO },
   width  = 305,   -- px
   height = 62,    -- px
   horizontal_offset = -22,
@@ -184,6 +184,16 @@ local CLAUDE_USAGE = {
 | `◌ claude: jq fehlt` | `sudo apt install jq` in WSL |
 
 Abschalten: `enabled = false`. Mehrere Accounts verlängern die Zeile — reicht das Fenster nicht, `rows` filtern oder einen Account weglassen. Der Endpoint (`api.anthropic.com/api/oauth/usage`) ist derselbe, den Claude Code für `/usage` nutzt, aber nicht öffentlich dokumentiert; ändert sich sein Format, zeigt die Anzeige `◌ … (Nm)` und das Terminal läuft normal weiter. Manuell prüfen (in WSL): `bash /mnt/c/Users/<du>/.wezterm-claude-usage.sh --out /tmp/cu.json && cat /tmp/cu.json`.
+
+## Hintergrundbilder und aufgeräumtes `%TEMP%`
+
+WezTerm lagert jedes dekodierte Hintergrundbild (Logo, Nutzungs-Streifen) als Datei nach `%TEMP%\wezterm-blob-lease-<zufall>\` aus und liest sie bei jedem Neuaufbau seiner Texturen wieder ein, also bei jeder Config-Änderung. Löscht die Windows-Speicheroptimierung oder „Temporäre Dateien löschen" diesen Ordner, kann WezTerm das Fenster ab der nächsten Änderung nicht mehr zeichnen: Es bleibt stehen, im Log steht `paint_pass failed: render_backgrounds: … BlobLease`. Dasselbe Bild neu einzuhängen hilft nicht, denn WezTerm merkt sich das dekodierte Bild je Datei-Inhalt.
+
+Die Config repariert das selbst. Alle 5 Sekunden sieht sie im eigenen WezTerm-Log (`%USERPROFILE%\.local\share\wezterm\wezterm-gui.exe-log-<pid>.txt`) nach diesem Fehler. Findet sie ihn, hängt sie Logo und Nutzungs-Bild als Kopie mit einem zusätzlichen PNG-Textfeld ein (`.wezterm-bg-heal.<pid>-<n>.png` und ein neues `.wezterm-claude-usage.<zeit>-<n>.png` im Benutzerordner). Gleiche Pixel, anderer Datei-Inhalt: WezTerm dekodiert neu und legt die ausgelagerte Datei wieder an. Das Fenster steht dann nur wenige Sekunden.
+
+`F5` macht dasselbe von Hand. Scheitert das Zeichnen trotz drei Heilungen in fünf Minuten weiter, schaltet die Config die Hintergrundbilder ab, die Nutzung wandert in die Tab-Leiste und der Grund steht im Log; `F5` versucht es erneut. Die Logo-Kopie eines beendeten WezTerm räumt der nächste Start weg.
+
+Grenzen: Die Erkennung braucht das Log am Standardort. Andere Bilder im Terminal (etwa per `imgcat`) nutzen dieselbe Auslagerung und bleiben nach dem Aufräumen kaputt, bis das Programm sie neu ausgibt.
 
 ## Debugging
 

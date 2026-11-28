@@ -5,10 +5,12 @@ Alle relevanten Änderungen werden hier dokumentiert. Format orientiert sich an 
 ## [Unreleased]
 
 ### Fixed
+- **Fenster steht nach dem Löschen temporärer Dateien** — WezTerm lagert dekodierte Hintergrundbilder nach `%TEMP%\wezterm-blob-lease-*` aus. Räumt die Speicheroptimierung oder „Temporäre Dateien löschen" dort auf, scheiterte ab der nächsten Config-Änderung jeder Zeichenvorgang (`paint_pass failed: render_backgrounds: … BlobLease`), bis zum Neustart; `F5` half nicht. Die Config sieht jetzt alle 5 Sekunden im eigenen WezTerm-Log nach diesem Fehler und hängt Logo und Nutzungs-Bild als Kopie mit zusätzlichem PNG-Textfeld neu ein: gleiche Pixel, anderer Datei-Inhalt, WezTerm dekodiert neu und legt die ausgelagerte Datei wieder an. `F5` heilt auch von Hand. Hilft das dreimal in fünf Minuten nicht, bleiben die Hintergrundbilder aus und die Nutzung wandert in die Tab-Leiste, bis `F5`. Der Uninstaller räumt die Logo-Kopien (`.wezterm-bg-heal.<pid>-<n>.png`) mit auf
 - **Claude-Nutzung verschwand nach dem Start** — die Config renderte abwechselnd in zwei feste Dateien (`.a.png` / `.b.png`) und löschte die Zieldatei vor jedem Render. Beim Fensterstart wird mehrmals kurz hintereinander gerendert (Platzhalter, dann echte Daten); dabei verschwand das Bild, das WezTerm gerade übernehmen wollte. Ein fehlgeschlagenes Laden versucht WezTerm nicht erneut, die Anzeige blieb leer, bis sich der Inhalt änderte. Jetzt bekommt jeder Render eine eigene Datei (`.wezterm-claude-usage.<zeit>-<n>.png`), ein abgelöstes Bild wird erst nach 60 Sekunden gelöscht, Reste früherer Prozesse beim Start (nach einem Tag). Der Uninstaller räumt per Muster auf
 
 ### Added
 - **Test für die Bild-Dateien** — `tests/render_test.lua` (in `tests/verify.sh --full`) fährt den Status-Poll mit gemockter Uhr und prüft u. a., dass das angezeigte Bild in jedem Tick existiert (19 Fälle)
+- **Test für die Selbstheilung** — `tests/heal_test.lua` (36 Fälle) schreibt die Fehlerzeile ins Test-Log und prüft Erkennung, die gestempelten Kopien (PNG-Struktur, CRC, unveränderte Bilddaten), Ruhezeit, Abschalten nach drei erfolglosen Heilungen und `F5`. `F5` hängt dafür an einem benannten Event (`stack-reload`). `tests/run_test.lua` meldet Lua-Fehler beim Laden eines Tests, statt ohne Ergebnis zu enden; `VERIFY_KEEP=1` lässt den Testordner zur Fehlersuche liegen
 
 ## [0.5.0] — 2026-11-26
 

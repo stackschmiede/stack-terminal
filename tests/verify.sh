@@ -3,8 +3,9 @@
 #   schnell (default): config lädt ohne lua-fehler (pcall + dofile) und wezterm übernimmt sie
 #                      (eigene maus-bindings in show-keys — show-keys allein endet auch bei
 #                      kaputter config mit exit 0, wezterm fällt still auf die standard-config zurück)
-#   --full:            zusätzlich open-uri-handler (tests/handler_test.lua), tab-state (tests/busy_test.lua)
-#                      und dateien des nutzungs-bilds (tests/render_test.lua)
+#   --full:            zusätzlich open-uri-handler (tests/handler_test.lua), tab-state (tests/busy_test.lua),
+#                      dateien des nutzungs-bilds (tests/render_test.lua) und selbstheilung der
+#                      hintergrundbilder (tests/heal_test.lua)
 # braucht windows-interop (wezterm.exe aus WSL) — im firejail-jail nicht vorhanden → rot mit meldung.
 # wezterm-pfad überschreibbar: WEZTERM_EXE=/mnt/c/…/wezterm.exe · quell-config (mutationstests): STACK_TERMINAL_CFG
 set -euo pipefail
@@ -20,13 +21,21 @@ if [ ! -x "$W" ]; then
 fi
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/stack-terminal-verify.XXXXXX")"
-cleanup() { rm -f "$T"/* "$T"/.wezterm-claude-usage.*; rmdir "$T"; }
+cleanup() {
+  if [ -n "${VERIFY_KEEP:-}" ]; then echo "testordner bleibt: $T"; return; fi  # fehlersuche
+  rm -f "$T"/* "$T"/.wezterm-claude-usage.* "$T"/.wezterm-bg-heal.*; rmdir "$T"
+}
 trap cleanup EXIT
 
 CFG="$T/wezterm.lua"
+# assets = testordner mit dem echten logo (heal_test stempelt es); pfad als lua-string (\ verdoppelt),
+# für den sed-ersatztext noch einmal verdoppelt
+cp config/assets/logo-wordmark.png "$T/"
+ASSETS="$(wslpath -w "$T")"
+ASSETS="${ASSETS//\\/\\\\}"
 sed -e 's/{{WSL_USERNAME}}/user/g' -e 's/{{WSL_DISTRO}}/Ubuntu/g' \
     -e 's#{{PROJECTS_PATH}}#/home/user/projects#g' \
-    -e 's#{{ASSETS_PATH}}#C:\\\\Users\\\\user\\\\.wezterm-assets#g' \
+    -e "s#{{ASSETS_PATH}}#${ASSETS//\\/\\\\}#g" \
     "$SRC" > "$CFG"
 if grep -n '{{' "$CFG"; then
   echo "❌ unersetzte platzhalter in $SRC"
@@ -35,11 +44,13 @@ fi
 
 fail=0
 # <name> <test.lua> → schreibt nach $T/<name>.out; extra env per WT_ED, weitere exportierte
-# variablen über WT_WSLENV_EXTRA (":NAME/p…")
+# variablen über WT_WSLENV_EXTRA (":NAME/p…"). der test läuft über tests/run_test.lua (pcall):
+# bricht er schon beim laden ab, steht der lua-fehler in <name>.out statt nirgends
 run_lua() {
   local name="$1" lua="$2"
-  WSLENV="WT_CFG/p:WT_OUT/p:WT_ED${WT_WSLENV_EXTRA:-}" WT_CFG="$CFG" WT_OUT="$T/$name.out" WT_ED="${WT_ED:-code}" \
-    "$W" --config-file "$(wslpath -w "$PWD/$lua")" show-keys > "$T/$name.keys" 2> "$T/$name.err" || true
+  WSLENV="WT_CFG/p:WT_OUT/p:WT_TEST/p:WT_ED${WT_WSLENV_EXTRA:-}" WT_CFG="$CFG" WT_OUT="$T/$name.out" \
+    WT_TEST="$PWD/$lua" WT_ED="${WT_ED:-code}" \
+    "$W" --config-file "$(wslpath -w "$PWD/tests/run_test.lua")" show-keys > "$T/$name.keys" 2> "$T/$name.err" || true
 }
 check_result() { # <name> → RESULT n/n ohne FAIL
   local name="$1" res
@@ -48,7 +59,7 @@ check_result() { # <name> → RESULT n/n ohne FAIL
     echo "❌ $name: kein ergebnis (test-lua nicht geladen?)"; head -c 600 "$T/$name.err"; fail=1; return
   fi
   if grep -q '^FAIL' "$T/$name.out"; then
-    echo "❌ $name: $res"; grep -A2 '^FAIL' "$T/$name.out"; fail=1; return
+    echo "❌ $name: $res"; grep -A2 '^FAIL' "$T/$name.out" | cut -c1-600; fail=1; return
   fi
   local got want
   got="${res#RESULT }"; want="${got#*/}"; got="${got%/*}"
@@ -83,8 +94,13 @@ if [ "$FULL" = 1 ]; then
   export WEZTERM_CLAUDE_USAGE_DIR="$T" WEZTERM_CLAUDE_USAGE_CACHE="$T/cu-cache.json"
   : > "$WEZTERM_CLAUDE_USAGE_CACHE"
   WT_WSLENV_EXTRA=":WEZTERM_CLAUDE_USAGE_DIR/p:WEZTERM_CLAUDE_USAGE_CACHE/p" run_lua render tests/render_test.lua
-  unset WEZTERM_CLAUDE_USAGE_DIR WEZTERM_CLAUDE_USAGE_CACHE
   check_result render
+  # selbstheilung: eigenes log des tests statt des wezterm-logs
+  export WEZTERM_BG_HEAL_LOG="$T/heal.log"
+  : > "$WEZTERM_CLAUDE_USAGE_CACHE"
+  WT_WSLENV_EXTRA=":WEZTERM_CLAUDE_USAGE_DIR/p:WEZTERM_CLAUDE_USAGE_CACHE/p:WEZTERM_BG_HEAL_LOG/p" run_lua heal tests/heal_test.lua
+  unset WEZTERM_CLAUDE_USAGE_DIR WEZTERM_CLAUDE_USAGE_CACHE WEZTERM_BG_HEAL_LOG
+  check_result heal
 fi
 
 [ "$fail" = 0 ] && echo "✅ stack-terminal verify ($([ "$FULL" = 1 ] && echo voll || echo schnell)): grün"

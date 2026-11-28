@@ -1,3 +1,4 @@
 # volle suite (nur über /verify): schnell-stufe + open-uri-handler (tests/handler_test.lua)
 # + tab-state inkl. hintergrund-shells/-agenten (tests/busy_test.lua) + nutzungs-bild-dateien (tests/render_test.lua)
+# + selbstheilung der hintergrundbilder (tests/heal_test.lua)
 bash tests/verify.sh --full
