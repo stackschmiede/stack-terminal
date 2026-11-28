@@ -7,7 +7,7 @@
 ; Anforderungen: Inno Setup 6.3+  (https://jrsoftware.org/isinfo.php)
 
 #define AppName    "TerminalStack"
-#define AppVersion "0.5.0"
+#define AppVersion "0.5.1"
 #define AppPublisher "Stackschmiede"
 #define AppURL     "https://stackschmiede.de"
 #define AppExeName "wezterm.exe"

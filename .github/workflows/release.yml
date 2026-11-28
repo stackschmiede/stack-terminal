@@ -52,18 +52,13 @@ jobs:
             1. ZIP entpacken
             2. In `install/` → `install.bat` doppelklicken (oder `install.ps1` in PowerShell)
 
-            **Option C — One-Liner (PowerShell)**
-            ```powershell
-            irm https://raw.githubusercontent.com/${{ github.repository }}/main/install/install.ps1 | iex
-            ```
-
             ### Voraussetzungen
             - Windows 10/11
             - [WezTerm](https://wezfurlong.org/wezterm/) installiert
             - WSL2 mit Ubuntu (oder anderer Distro)
 
             ### Änderungen
-            Siehe [CHANGELOG.md](CHANGELOG.md)
+            Siehe [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md)
           files: |
             install/Output/TerminalStack-Setup-*.exe
             TerminalStack-${{ github.ref_name }}.zip
